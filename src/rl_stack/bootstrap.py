@@ -10,6 +10,7 @@ from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from .infrastructure.policy.static import StaticPolicyServer
 from .infrastructure.rewards.heuristic import HeuristicRewardPipeline
 from .infrastructure.store.memory import InMemoryArtifactStore
+from .infrastructure.store.sqlite import SqliteArtifactStore
 from .infrastructure.tools.local import LocalToolHarness
 from .settings import Settings
 
@@ -30,7 +31,7 @@ def build_application_services(
     settings = settings or Settings()
     root = Path(settings.workspace_root).resolve()
     bus = event_bus or EventBus()
-    store = InMemoryArtifactStore()
+    store = _build_store(settings)
 
     policy = _build_policy(settings)
 
@@ -58,3 +59,13 @@ def _build_policy(settings: Settings):
             return StaticPolicyServer()
         case other:
             raise ValueError(f"Unsupported policy backend: {other}")
+
+
+def _build_store(settings: Settings) -> ArtifactStore:
+    match settings.store_backend:
+        case "memory":
+            return InMemoryArtifactStore()
+        case "sqlite":
+            return SqliteArtifactStore(path=settings.artifacts_dir / "runs.db")
+        case other:
+            raise ValueError(f"Unsupported store backend: {other}")

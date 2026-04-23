@@ -17,6 +17,7 @@ from rl_stack.domain.models import (
     TrajectoryRecord,
 )
 from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
+from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
 
 
 def _detail(run_id: str = "run-1") -> RunDetail:
@@ -52,10 +53,24 @@ def _detail(run_id: str = "run-1") -> RunDetail:
     )
 
 
-STORE_FACTORIES: list[Callable[[], ArtifactStore]] = [InMemoryArtifactStore]
+def _sqlite_factory(tmp_path_factory: pytest.TempPathFactory) -> Callable[[], ArtifactStore]:
+    base = tmp_path_factory.mktemp("sqlite-store")
+    counter = {"n": 0}
+
+    def make() -> ArtifactStore:
+        counter["n"] += 1
+        return SqliteArtifactStore(path=base / f"runs-{counter['n']}.db")
+
+    return make
 
 
-@pytest.mark.parametrize("factory", STORE_FACTORIES)
+@pytest.fixture(params=["memory", "sqlite"])
+def factory(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory) -> Callable[[], ArtifactStore]:
+    if request.param == "memory":
+        return InMemoryArtifactStore
+    return _sqlite_factory(tmp_path_factory)
+
+
 def test_save_and_get_run_roundtrip(factory: Callable[[], ArtifactStore]) -> None:
     store = factory()
     saved = store.save_run(_detail("run-a"))
@@ -63,7 +78,6 @@ def test_save_and_get_run_roundtrip(factory: Callable[[], ArtifactStore]) -> Non
     assert store.get_run("missing") is None
 
 
-@pytest.mark.parametrize("factory", STORE_FACTORIES)
 def test_list_runs_returns_most_recent_first(factory: Callable[[], ArtifactStore]) -> None:
     store = factory()
     store.save_run(_detail("run-old"))
@@ -72,7 +86,6 @@ def test_list_runs_returns_most_recent_first(factory: Callable[[], ArtifactStore
     assert {r.id for r in runs} == {"run-old", "run-new"}
 
 
-@pytest.mark.parametrize("factory", STORE_FACTORIES)
 def test_dashboard_includes_runs_and_recent_artifacts(
     factory: Callable[[], ArtifactStore],
 ) -> None:
