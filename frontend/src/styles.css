@@ -127,6 +127,229 @@ a {
   color: #244aa5;
 }
 
+.budget-panel .budget-bar {
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(24, 32, 42, 0.08);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.budget-panel .budget-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0e6a38, #4da37a);
+}
+
+.budget-panel .budget-bar-over .budget-fill {
+  background: linear-gradient(90deg, #a62b1f, #d65a4e);
+}
+
+.budget-warn {
+  color: #a62b1f;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
+
+.run-progress {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  color: #244aa5;
+  margin: 4px 0 0;
+}
+
+.action-btn {
+  margin-top: 10px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(166, 43, 31, 0.35);
+  background: rgba(255, 216, 214, 0.6);
+  color: #a62b1f;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.action-btn-neutral {
+  border-color: rgba(36, 74, 165, 0.35);
+  background: rgba(220, 230, 255, 0.7);
+  color: #244aa5;
+}
+
+.rescore {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.rescore select {
+  margin-left: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(24, 32, 42, 0.15);
+  background: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+}
+
+.delta-pos {
+  color: #0e6a38;
+  font-weight: 600;
+}
+
+.delta-neg {
+  color: #a62b1f;
+  font-weight: 600;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+}
+
+.kv dt {
+  color: #555f6b;
+}
+
+.kv dd {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+.signal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 8px;
+}
+
+.signal-table th,
+.signal-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(24, 32, 42, 0.08);
+}
+
+.signal-table th {
+  color: #3b4a5a;
+  font-weight: 600;
+}
+
+.step-row .step-main {
+  width: 100%;
+}
+
+.step-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.tool-chip {
+  font-size: 0.78rem;
+  background: rgba(36, 74, 165, 0.12);
+  color: #244aa5;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.step-json {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  background: rgba(24, 32, 42, 0.04);
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.step-text {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.muted {
+  color: #555f6b;
+  font-size: 0.82rem;
+}
+
+.errors {
+  color: #a62b1f;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.82rem;
+  margin-bottom: 8px;
+}
+
+.log-stack {
+  max-height: 260px;
+  overflow: auto;
+  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.82rem;
+  gap: 4px;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 64px 88px 140px 120px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.log-row .log-time {
+  color: #555f6b;
+}
+
+.log-row .log-logger {
+  color: #3b4a5a;
+}
+
+.log-row .log-run {
+  color: #244aa5;
+}
+
+.log-row .log-message {
+  color: #18202a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge-info,
+.badge-debug {
+  background: #dce6ff;
+  color: #244aa5;
+}
+
+.badge-warning {
+  background: #ffe7b3;
+  color: #8a5a00;
+}
+
+.badge-error,
+.badge-critical {
+  background: #ffd8d6;
+  color: #a62b1f;
+}
+
 @media (max-width: 820px) {
   .grid {
     grid-template-columns: 1fr;
@@ -134,5 +357,14 @@ a {
 
   .panel-wide {
     grid-column: auto;
+  }
+
+  .log-row {
+    grid-template-columns: 56px 80px 1fr;
+  }
+
+  .log-row .log-logger,
+  .log-row .log-run {
+    display: none;
   }
 }

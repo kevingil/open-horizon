@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..contracts import PolicyServer
-from ..models import TaskSpec
+from ...domain.contracts import PolicyServer
+from ...domain.models import TaskSpec
 
 
 @dataclass

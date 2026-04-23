@@ -5,3 +5,8 @@ __pycache__/
 dist/
 build/
 node_modules/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+artifacts/
+.env
