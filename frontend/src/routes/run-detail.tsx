@@ -1,6 +1,6 @@
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { cancelRun, fetchRun } from "../lib/api";
+import { cancelRun, fetchRubrics, fetchRun, rescoreRun, type RubricInfo } from "../lib/api";
 import type { RunDetail, TrajectoryStep } from "../lib/types";
 
 interface RewardProvenance {
@@ -13,6 +13,19 @@ export function RunDetailPage() {
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [rubrics, setRubrics] = useState<RubricInfo[]>([]);
+  const [selectedRubric, setSelectedRubric] = useState<string>("");
+  const [rescoring, setRescoring] = useState(false);
+  const [rescoreDelta, setRescoreDelta] = useState<number | null>(null);
+
+  const refresh = async () => {
+    try {
+      const next = await fetchRun(runId);
+      setRun(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const onCancel = async () => {
     setCancelling(true);
@@ -25,13 +38,30 @@ export function RunDetailPage() {
     }
   };
 
+  const onRescore = async () => {
+    if (!selectedRubric) return;
+    setRescoring(true);
+    try {
+      const result = await rescoreRun(runId, selectedRubric);
+      setRescoreDelta(result.delta);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRescoring(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     async function load() {
       try {
-        const next = await fetchRun(runId);
-        if (active) {
-          setRun(next);
+        const [next, rubricList] = await Promise.all([fetchRun(runId), fetchRubrics()]);
+        if (!active) return;
+        setRun(next);
+        setRubrics(rubricList);
+        if (rubricList.length && !selectedRubric) {
+          setSelectedRubric(rubricList[0].name);
         }
       } catch (err) {
         if (active) {
@@ -97,6 +127,33 @@ export function RunDetailPage() {
         </div>
         {provenance?.rubric ? <p>Rubric: {provenance.rubric}</p> : null}
         <p>Audit flags: {run.reward.audit_flags.join(", ") || "none"}</p>
+        {rubrics.length > 0 ? (
+          <div className="rescore">
+            <label>
+              Rescore with
+              <select
+                value={selectedRubric}
+                onChange={(e) => setSelectedRubric(e.target.value)}
+                disabled={rescoring}
+              >
+                {rubrics.map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="action-btn action-btn-neutral" onClick={onRescore} disabled={rescoring}>
+              {rescoring ? "Scoring..." : "Apply"}
+            </button>
+            {rescoreDelta !== null ? (
+              <span className={rescoreDelta >= 0 ? "delta-pos" : "delta-neg"}>
+                Δ {rescoreDelta >= 0 ? "+" : ""}
+                {rescoreDelta.toFixed(3)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {provenance?.signals ? (
           <table className="signal-table">
             <thead>

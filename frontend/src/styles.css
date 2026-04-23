@@ -151,6 +151,39 @@ a {
   cursor: not-allowed;
 }
 
+.action-btn-neutral {
+  border-color: rgba(36, 74, 165, 0.35);
+  background: rgba(220, 230, 255, 0.7);
+  color: #244aa5;
+}
+
+.rescore {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.rescore select {
+  margin-left: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(24, 32, 42, 0.15);
+  background: rgba(255, 255, 255, 0.7);
+  font-family: inherit;
+}
+
+.delta-pos {
+  color: #0e6a38;
+  font-weight: 600;
+}
+
+.delta-neg {
+  color: #a62b1f;
+  font-weight: 600;
+}
+
 .kv {
   display: grid;
   grid-template-columns: max-content 1fr;

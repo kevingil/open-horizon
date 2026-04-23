@@ -9,6 +9,7 @@ rubric registry grows up).
 """
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -147,6 +148,41 @@ CODING_V1 = RubricSpec(
         tests_pass_signal,
     ),
 )
+
+
+def _with_weight(fn: RewardFn, weight: float) -> RewardFn:
+    """Partial-apply a signal weight and preserve the original __name__ for debug output."""
+    wrapped = functools.partial(fn, weight=weight)
+    functools.update_wrapper(wrapped, fn)
+    return wrapped
+
+
+STRICT_FINISH_V1 = RubricSpec(
+    name="strict-finish",
+    version="v1",
+    signals=(
+        _with_weight(error_penalty_signal, 1.0),
+        _with_weight(finish_signal, 1.5),
+        _with_weight(success_criteria_signal, 0.5),
+    ),
+)
+
+
+# Central rubric registry. CLI and API look rubrics up by name here so adding
+# a rubric requires one registration line; no plumbing changes in the
+# coordinator or API.
+RUBRICS: dict[str, RubricSpec] = {
+    HEURISTIC_V1.provenance: HEURISTIC_V1,
+    CODING_V1.provenance: CODING_V1,
+    STRICT_FINISH_V1.provenance: STRICT_FINISH_V1,
+}
+
+
+def get_rubric(name: str) -> RubricSpec:
+    """Lookup a rubric by its provenance (e.g. 'heuristic-v1')."""
+    if name not in RUBRICS:
+        raise KeyError(f"unknown rubric: {name}. Available: {sorted(RUBRICS)}")
+    return RUBRICS[name]
 
 
 def score(task: TaskSpec, trajectory: TrajectoryRecord, rubric: RubricSpec) -> RewardRecord:

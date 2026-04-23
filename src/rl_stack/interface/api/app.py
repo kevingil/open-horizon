@@ -8,8 +8,11 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from ...application.rescore import rescore_run
 from ...bootstrap import ApplicationServices, build_application_services
+from ...domain.events import RewardComputed
 from ...domain.models import RolloutRequest
+from ...domain.rewards import RUBRICS
 from ...logging import configure_logging, install_event_bus_handler
 from ...settings import Settings
 
@@ -78,6 +81,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not accepted:
             raise HTTPException(status_code=409, detail="Run is already terminal")
         return {"status": "cancelling", "run_id": run_id}
+
+    @app.get("/api/rubrics")
+    def list_rubrics():
+        return [
+            {"name": name, "signals": [fn.__name__ for fn in RUBRICS[name].signals]}
+            for name in sorted(RUBRICS)
+        ]
+
+    @app.post("/api/runs/{run_id}/rescore")
+    async def rescore(run_id: str, rubric: str, dry_run: bool = False):
+        try:
+            result = rescore_run(
+                services.artifact_store, run_id, rubric, persist=not dry_run,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if not dry_run:
+            await services.event_bus.publish(
+                RewardComputed(
+                    run_id=run_id,
+                    terminal_reward=result.new_reward.terminal_reward,
+                    provenance=result.new_reward.provenance,
+                    audit_flags=result.new_reward.audit_flags,
+                )
+            )
+        return {
+            "run_id": result.run_id,
+            "rubric": result.rubric,
+            "previous_terminal_reward": result.previous_reward.terminal_reward,
+            "new_terminal_reward": result.new_reward.terminal_reward,
+            "delta": result.delta,
+            "persisted": not dry_run,
+            "new_reward": result.new_reward.model_dump(),
+        }
 
     @app.websocket("/ws/events")
     async def events_ws(websocket: WebSocket) -> None:
