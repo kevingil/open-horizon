@@ -17,6 +17,7 @@ from ..domain.contracts import (
     ToolHarness,
 )
 from ..domain.events import (
+    ProgressTicked,
     RewardComputed,
     RolloutCancelled,
     RolloutCompleted,
@@ -246,6 +247,15 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             steps.extend([action_step, obs_step])
             await self.event_bus.publish(StepRecorded(run_id=run_id, step=action_step))
             await self.event_bus.publish(StepRecorded(run_id=run_id, step=obs_step))
+            await self.event_bus.publish(
+                ProgressTicked(
+                    run_id=run_id,
+                    step_index=index,
+                    tool=_tool_from(action),
+                    tokens=self._tokens_for(task.id),
+                    cost_usd=self._cost_for(task.id),
+                )
+            )
             context.append(observation)
             await asyncio.sleep(0)
 
@@ -300,16 +310,29 @@ class LocalRolloutCoordinator(RolloutCoordinator):
 
 
 def _is_finish(action: str) -> bool:
+    payload = _maybe_json(action)
+    if payload is None:
+        return False
+    name = payload.get("tool") or payload.get("name")
+    return name == "finish"
+
+
+def _tool_from(action: str) -> str | None:
+    payload = _maybe_json(action)
+    if payload is None:
+        return None
+    value = payload.get("tool") or payload.get("name")
+    return value if isinstance(value, str) else None
+
+
+def _maybe_json(action: str) -> dict | None:
     import json as _json
 
     try:
         payload = _json.loads(action)
     except _json.JSONDecodeError:
-        return False
-    if not isinstance(payload, dict):
-        return False
-    name = payload.get("tool") or payload.get("name")
-    return name == "finish"
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def _default_artifacts(run_id: str) -> list[ArtifactRecord]:

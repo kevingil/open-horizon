@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useLiveDashboard } from "../lib/store";
 
 export function DashboardPage() {
-  const { snapshot, logs, status, error } = useLiveDashboard();
+  const { snapshot, logs, progress, status, error } = useLiveDashboard();
 
   if (error && !snapshot) {
     return <section className="panel">Dashboard error: {error}</section>;
@@ -22,18 +22,28 @@ export function DashboardPage() {
           </span>
         </div>
         <div className="stack">
-          {snapshot.runs.map((run) => (
-            <Link key={run.id} to="/runs/$runId" params={{ runId: run.id }} className="run-card">
-              <div className="run-title">
-                <strong>{run.id}</strong>
-                <span className={`badge badge-${run.status}`}>{run.status}</span>
-              </div>
-              <p className="run-model">{run.model_id}</p>
-              <p>
-                {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
-              </p>
-            </Link>
-          ))}
+          {snapshot.runs.map((run) => {
+            const p = progress[run.id];
+            return (
+              <Link key={run.id} to="/runs/$runId" params={{ runId: run.id }} className="run-card">
+                <div className="run-title">
+                  <strong>{run.id}</strong>
+                  <span className={`badge badge-${run.status}`}>{run.status}</span>
+                </div>
+                <p className="run-model">{run.model_id}</p>
+                <p>
+                  {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
+                </p>
+                {p ? (
+                  <p className="run-progress">
+                    step {p.step_index + 1}
+                    {p.tool ? ` · ${p.tool}` : ""}
+                    {" · "}${p.cost_usd.toFixed(4)} · {p.tokens.toLocaleString()} tok
+                  </p>
+                ) : null}
+              </Link>
+            );
+          })}
         </div>
       </section>
 

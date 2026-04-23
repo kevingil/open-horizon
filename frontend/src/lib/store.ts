@@ -4,9 +4,18 @@ import type { DomainEvent, LogLine } from "./events";
 import { useEventStream, type SocketStatus } from "./socket";
 import type { DashboardSnapshot, RunManifest, WorkerRecord } from "./types";
 
+export interface RunProgress {
+  step_index: number;
+  tool: string | null;
+  tokens: number;
+  cost_usd: number;
+  at: string;
+}
+
 export interface LiveState {
   snapshot: DashboardSnapshot | null;
   logs: LogLine[];
+  progress: Record<string, RunProgress>;
   status: SocketStatus;
   error: string | null;
 }
@@ -16,6 +25,7 @@ const MAX_LOGS = 200;
 export function useLiveDashboard(): LiveState {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [progress, setProgress] = useState<Record<string, RunProgress>>({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,9 +46,36 @@ export function useLiveDashboard(): LiveState {
         return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
       });
     }
+    if (event.kind === "progress.ticked" && event.run_id) {
+      const runId = event.run_id;
+      setProgress((prev) => ({
+        ...prev,
+        [runId]: {
+          step_index: event.step_index,
+          tool: event.tool,
+          tokens: event.tokens,
+          cost_usd: event.cost_usd,
+          at: event.at,
+        },
+      }));
+    }
+    if (
+      (event.kind === "rollout.completed" ||
+        event.kind === "rollout.failed" ||
+        event.kind === "rollout.cancelled") &&
+      event.run_id
+    ) {
+      const runId = event.run_id;
+      setProgress((prev) => {
+        if (!(runId in prev)) return prev;
+        const next = { ...prev };
+        delete next[runId];
+        return next;
+      });
+    }
   });
 
-  return { snapshot, logs, status, error };
+  return { snapshot, logs, progress, status, error };
 }
 
 function applyEvent(snapshot: DashboardSnapshot, event: DomainEvent): DashboardSnapshot {

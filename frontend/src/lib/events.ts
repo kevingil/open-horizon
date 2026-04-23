@@ -50,6 +50,17 @@ export type RolloutCancelled = {
   reason: string;
 };
 
+export type ProgressTicked = {
+  kind: "progress.ticked";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  step_index: number;
+  tool: string | null;
+  tokens: number;
+  cost_usd: number;
+};
+
 export type WorkerUpdated = {
   kind: "worker.updated";
   event_id: string;
@@ -76,5 +87,6 @@ export type DomainEvent =
   | RolloutCompleted
   | RolloutFailed
   | RolloutCancelled
+  | ProgressTicked
   | WorkerUpdated
   | LogLine;

@@ -47,6 +47,18 @@ class RolloutCancelled(_EventBase):
     reason: str = "cancelled"
 
 
+class ProgressTicked(_EventBase):
+    """Per-step progress snapshot: cumulative tokens, cost, latest tool.
+    Separate from StepRecorded so dashboards can render running tallies
+    without re-parsing trajectory content."""
+
+    kind: Literal["progress.ticked"] = "progress.ticked"
+    step_index: int
+    tool: str | None = None
+    tokens: int = 0
+    cost_usd: float = 0.0
+
+
 class WorkerUpdated(_EventBase):
     kind: Literal["worker.updated"] = "worker.updated"
     worker: WorkerRecord
@@ -67,6 +79,7 @@ DomainEvent = Annotated[
     | RolloutCompleted
     | RolloutFailed
     | RolloutCancelled
+    | ProgressTicked
     | WorkerUpdated
     | LogLine,
     Field(discriminator="kind"),

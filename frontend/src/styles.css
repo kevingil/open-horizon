@@ -127,6 +127,13 @@ a {
   color: #244aa5;
 }
 
+.run-progress {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  color: #244aa5;
+  margin: 4px 0 0;
+}
+
 .action-btn {
   margin-top: 10px;
   padding: 6px 14px;

@@ -54,6 +54,22 @@ async def test_parallel_rollouts_are_isolated(
 
 
 @pytest.mark.asyncio
+async def test_progress_ticks_include_cumulative_step_index(
+    coordinator: LocalRolloutCoordinator,
+) -> None:
+    got, pump_task = await _collect_until_completed(coordinator.event_bus)
+    await coordinator.start_rollout(RolloutRequest(prompt="p", horizon=3))
+    await asyncio.wait_for(pump_task, timeout=2)
+
+    progress = [e for e in got if e.kind == "progress.ticked"]
+    assert len(progress) == 3
+    # Step indices must be 0, 1, 2 in order and share the run_id.
+    assert [e.step_index for e in progress] == [0, 1, 2]
+    run_ids = {e.run_id for e in progress}
+    assert len(run_ids) == 1
+
+
+@pytest.mark.asyncio
 async def test_bootstrap_seeds_runs_only_once(
     coordinator: LocalRolloutCoordinator,
 ) -> None:
