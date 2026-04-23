@@ -17,8 +17,12 @@ from pathlib import Path
 
 from ...domain.contracts import EnvironmentRunner
 from ...domain.models import TaskSpec
+from .sandbox import NullSandbox, Sandbox
 from .snapshot import snapshot_repo
 from .tools import COMMAND_ALLOWLIST, TOOL_NAMES
+
+# Cap written files so a runaway policy can't fill disk.
+_MAX_WRITE_BYTES = 256_000
 
 
 @dataclass
@@ -37,6 +41,7 @@ class RepoEnvironmentRunner(EnvironmentRunner):
     scratch_root: Path
     command_timeout_s: float = 10.0
     max_output_bytes: int = 16_384
+    sandbox: Sandbox = field(default_factory=NullSandbox)
     states: dict[str, _TaskState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -92,6 +97,8 @@ class RepoEnvironmentRunner(EnvironmentRunner):
                 return self._search(state.workspace, args)
             case "run_command":
                 return self._run_command(state.workspace, args)
+            case "write_file":
+                return self._write_file(state.workspace, args)
             case "finish":
                 state.finished = True
                 state.final_summary = str(args.get("summary", ""))
@@ -161,19 +168,38 @@ class RepoEnvironmentRunner(EnvironmentRunner):
                 "error": f"command not allowed: {parts[0]}",
                 "allowlist": sorted(COMMAND_ALLOWLIST),
             }
-        try:
-            out = subprocess.run(
-                parts, cwd=workspace, capture_output=True, text=True,
-                timeout=self.command_timeout_s, check=False,
-            )
-        except subprocess.TimeoutExpired:
+        result = self.sandbox.run(workspace, parts, timeout=self.command_timeout_s)
+        if result.timed_out:
             return {"tool": "run_command", "error": "timeout", "command": command}
         return {
             "tool": "run_command",
             "command": command,
-            "stdout": out.stdout[-self.max_output_bytes :],
-            "stderr": out.stderr[-self.max_output_bytes :],
-            "returncode": out.returncode,
+            "stdout": result.stdout[-self.max_output_bytes :],
+            "stderr": result.stderr[-self.max_output_bytes :],
+            "returncode": result.returncode,
+            "sandbox": self.sandbox.name,
+        }
+
+    def _write_file(self, workspace: Path, args: dict) -> dict:
+        path = str(args.get("path", ""))
+        content = args.get("content", "")
+        if not isinstance(content, str):
+            return {"tool": "write_file", "error": "content must be a string"}
+        encoded = content.encode("utf-8")
+        if len(encoded) > _MAX_WRITE_BYTES:
+            return {
+                "tool": "write_file",
+                "error": f"content exceeds {_MAX_WRITE_BYTES} bytes",
+            }
+        target = self._resolve(workspace, path)
+        if target.is_symlink() or (target.exists() and target.is_dir()):
+            return {"tool": "write_file", "error": "refusing to overwrite symlink or directory"}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+        return {
+            "tool": "write_file",
+            "path": path,
+            "bytes": len(encoded),
         }
 
 

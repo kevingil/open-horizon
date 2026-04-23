@@ -81,6 +81,33 @@ def test_allowed_command_executes(runner: RepoEnvironmentRunner) -> None:
     obs = json.loads(runner.step(task.id, _call("run_command", command="ls")))
     assert obs["returncode"] == 0
     assert "README.md" in obs["stdout"]
+    assert obs["sandbox"] == "none"
+
+
+def test_write_file_creates_inside_workspace(runner: RepoEnvironmentRunner) -> None:
+    task = _task()
+    runner.create_task(task)
+    obs = json.loads(runner.step(task.id, _call("write_file", path="NOTES.md", content="hi there")))
+    assert obs["tool"] == "write_file"
+    assert obs["bytes"] == len("hi there")
+    # Read back through the same sandboxed runner.
+    readback = json.loads(runner.step(task.id, _call("read_file", path="NOTES.md")))
+    assert readback["content"] == "hi there"
+
+
+def test_write_file_rejects_path_escape(runner: RepoEnvironmentRunner) -> None:
+    task = _task()
+    runner.create_task(task)
+    obs = json.loads(runner.step(task.id, _call("write_file", path="../evil.txt", content="no")))
+    assert "error" in obs
+
+
+def test_write_file_caps_size(runner: RepoEnvironmentRunner) -> None:
+    task = _task()
+    runner.create_task(task)
+    huge = "a" * 300_000
+    obs = json.loads(runner.step(task.id, _call("write_file", path="big.txt", content=huge)))
+    assert obs["error"].startswith("content exceeds")
 
 
 def test_finish_marks_task_done(runner: RepoEnvironmentRunner) -> None:

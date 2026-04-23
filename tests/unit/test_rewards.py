@@ -4,12 +4,14 @@ import json
 
 from rl_stack.domain.models import TaskSpec, ToolPermission, TrajectoryRecord, TrajectoryStep
 from rl_stack.domain.rewards import (
+    CODING_V1,
     HEURISTIC_V1,
     error_penalty_signal,
     finish_signal,
     score,
     step_count_signal,
     success_criteria_signal,
+    tests_pass_signal,
 )
 from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
 from rl_stack.infrastructure.rewards.heuristic import HeuristicRewardPipeline
@@ -119,3 +121,57 @@ def test_legacy_heuristic_pipeline_still_works() -> None:
     traj = TrajectoryRecord(id="t", task_id="task-1", steps=_steps([("policy", "x")]))
     record = HeuristicRewardPipeline().score_trajectory(_task(), traj)
     assert record.provenance == "heuristic-local-v0"
+
+
+# --- tests_pass signal ---------------------------------------------------
+
+
+def _env_step(idx: int, payload: dict) -> TrajectoryStep:
+    return TrajectoryStep(index=idx, actor="environment", kind="observation", content=json.dumps(payload))
+
+
+def test_tests_pass_neutral_when_no_tests_run() -> None:
+    traj = TrajectoryRecord(
+        id="t", task_id="task-1",
+        steps=_steps([("policy", json.dumps({"tool": "read_file", "input": {"path": "x"}}))]),
+    )
+    assert tests_pass_signal(_task(), traj).value == 0.0
+
+
+def test_tests_pass_positive_on_green_pytest() -> None:
+    traj = TrajectoryRecord(
+        id="t", task_id="task-1",
+        steps=[
+            _env_step(0, {"tool": "run_command", "command": "pytest -x", "returncode": 0, "sandbox": "docker"}),
+        ],
+    )
+    sig = tests_pass_signal(_task(), traj)
+    assert sig.value == 1.0
+    assert "docker" in sig.reason
+
+
+def test_tests_pass_negative_on_red_pytest() -> None:
+    traj = TrajectoryRecord(
+        id="t", task_id="task-1",
+        steps=[
+            _env_step(0, {"tool": "run_command", "command": "pytest", "returncode": 1, "sandbox": "none"}),
+        ],
+    )
+    assert tests_pass_signal(_task(), traj).value == -1.0
+
+
+def test_tests_pass_uses_last_pytest_invocation() -> None:
+    traj = TrajectoryRecord(
+        id="t", task_id="task-1",
+        steps=[
+            _env_step(0, {"tool": "run_command", "command": "pytest", "returncode": 1, "sandbox": "none"}),
+            _env_step(1, {"tool": "run_command", "command": "pytest", "returncode": 0, "sandbox": "none"}),
+        ],
+    )
+    assert tests_pass_signal(_task(), traj).value == 1.0
+
+
+def test_coding_v1_rubric_is_registered() -> None:
+    assert CODING_V1.provenance == "coding-v1"
+    names = [fn.__name__ for fn in CODING_V1.signals]
+    assert "tests_pass_signal" in names

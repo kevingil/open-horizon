@@ -80,6 +80,40 @@ def finish_signal(task: TaskSpec, trajectory: TrajectoryRecord, *, weight: float
     return RewardSignal(name="finish", value=0.0, reason="no finish call", weight=weight)
 
 
+def tests_pass_signal(
+    task: TaskSpec, trajectory: TrajectoryRecord, *, weight: float = 0.8
+) -> RewardSignal:
+    """Scan tool observations for the last `pytest`/`python -m pytest` invocation
+    and score by returncode. Neutral (0) if the policy never ran tests."""
+    last_result: dict | None = None
+    for step in trajectory.steps:
+        if step.actor != "environment":
+            continue
+        payload = _maybe_json(step.content)
+        if not payload or payload.get("tool") != "run_command":
+            continue
+        command = str(payload.get("command", ""))
+        first = command.split(" ", 1)[0] if command else ""
+        if first == "pytest" or command.startswith("python -m pytest") or command.startswith("python3 -m pytest"):
+            last_result = payload
+    if last_result is None:
+        return RewardSignal(
+            name="tests_pass", value=0.0, reason="no test run observed", weight=weight,
+        )
+    rc = last_result.get("returncode", 1)
+    if rc == 0:
+        return RewardSignal(
+            name="tests_pass", value=1.0,
+            reason=f"pytest exit 0 (sandbox={last_result.get('sandbox', 'unknown')})",
+            weight=weight,
+        )
+    return RewardSignal(
+        name="tests_pass", value=-1.0,
+        reason=f"pytest exit {rc}",
+        weight=weight,
+    )
+
+
 @dataclass(frozen=True)
 class RubricSpec:
     name: str
@@ -99,6 +133,18 @@ HEURISTIC_V1 = RubricSpec(
         error_penalty_signal,
         success_criteria_signal,
         finish_signal,
+    ),
+)
+
+
+CODING_V1 = RubricSpec(
+    name="coding",
+    version="v1",
+    signals=(
+        error_penalty_signal,
+        success_criteria_signal,
+        finish_signal,
+        tests_pass_signal,
     ),
 )
 

@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     env_command_timeout_s: float = Field(default=10.0, gt=0)
     env_max_output_bytes: int = Field(default=16_384, gt=0)
 
+    # Sandbox for tool commands: "none" (host subprocess) or "docker".
+    # Docker falls back to none if the daemon is unavailable.
+    env_sandbox: str = Field(default="none")
+    sandbox_image: str = Field(default="python:3.11-slim")
+
     # Concurrency
     max_parallel_rollouts: int = Field(default=4, ge=1)
 

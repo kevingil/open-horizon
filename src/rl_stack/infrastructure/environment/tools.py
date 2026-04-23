@@ -52,6 +52,21 @@ def tool_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "write_file",
+            "description": (
+                "Create or overwrite a UTF-8 text file inside the workspace. "
+                "Path must stay within the workspace; no symlinks, no deletes."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
+            },
+        },
+        {
             "name": "finish",
             "description": "Signal that the task is complete. Provide a final summary.",
             "input_schema": {

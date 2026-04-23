@@ -7,6 +7,7 @@ from .application.coordinator import LocalRolloutCoordinator
 from .application.event_bus import EventBus
 from .domain.contracts import ArtifactStore, EnvironmentRunner
 from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
+from .infrastructure.environment.sandbox import build_sandbox
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from .infrastructure.policy.claude import ClaudePolicyServer
 from .infrastructure.policy.static import StaticPolicyServer
@@ -83,11 +84,13 @@ def _build_environment(settings: Settings, root: Path) -> EnvironmentRunner:
             return SimulatedEnvironmentRunner()
         case "repo":
             scratch = settings.artifacts_dir / "workspaces"
+            sandbox = build_sandbox(settings.env_sandbox, settings.sandbox_image)
             return RepoEnvironmentRunner(
                 source_root=root,
                 scratch_root=scratch,
                 command_timeout_s=settings.env_command_timeout_s,
                 max_output_bytes=settings.env_max_output_bytes,
+                sandbox=sandbox,
             )
         case other:
             raise ValueError(f"Unsupported env backend: {other}")
