@@ -5,7 +5,8 @@ from pathlib import Path
 
 from .application.coordinator import LocalRolloutCoordinator
 from .application.event_bus import EventBus
-from .domain.contracts import ArtifactStore
+from .domain.contracts import ArtifactStore, EnvironmentRunner
+from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from .infrastructure.policy.static import StaticPolicyServer
 from .infrastructure.rewards.heuristic import HeuristicRewardPipeline
@@ -35,8 +36,10 @@ def build_application_services(
 
     policy = _build_policy(settings)
 
+    environment = _build_environment(settings, root)
+
     coordinator = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
+        environment_runner=environment,
         tool_harness=LocalToolHarness(root=root),
         policy_server=policy,
         reward_pipeline=HeuristicRewardPipeline(),
@@ -59,6 +62,22 @@ def _build_policy(settings: Settings):
             return StaticPolicyServer()
         case other:
             raise ValueError(f"Unsupported policy backend: {other}")
+
+
+def _build_environment(settings: Settings, root: Path) -> EnvironmentRunner:
+    match settings.env_backend:
+        case "simulated":
+            return SimulatedEnvironmentRunner()
+        case "repo":
+            scratch = settings.artifacts_dir / "workspaces"
+            return RepoEnvironmentRunner(
+                source_root=root,
+                scratch_root=scratch,
+                command_timeout_s=settings.env_command_timeout_s,
+                max_output_bytes=settings.env_max_output_bytes,
+            )
+        case other:
+            raise ValueError(f"Unsupported env backend: {other}")
 
 
 def _build_store(settings: Settings) -> ArtifactStore:
