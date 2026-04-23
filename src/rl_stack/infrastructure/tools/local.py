@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..contracts import ToolHarness
+from ...domain.contracts import ToolHarness
 
 
 @dataclass

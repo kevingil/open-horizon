@@ -1,40 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { fetchDashboard } from "../lib/api";
-import type { DashboardSnapshot } from "../lib/types";
+import { useLiveDashboard } from "../lib/store";
 
 export function DashboardPage() {
-  const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { snapshot, logs, status, error } = useLiveDashboard();
 
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
-      try {
-        const next = await fetchDashboard();
-        if (active) {
-          setSnapshot(next);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      }
-    }
-
-    void load();
-    const timer = window.setInterval(() => {
-      void load();
-    }, 4000);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  if (error) {
+  if (error && !snapshot) {
     return <section className="panel">Dashboard error: {error}</section>;
   }
 
@@ -47,7 +17,9 @@ export function DashboardPage() {
       <section className="panel">
         <div className="panel-header">
           <h2>Runs</h2>
-          <span>{snapshot.runs.length}</span>
+          <span>
+            {snapshot.runs.length} · <em>{status}</em>
+          </span>
         </div>
         <div className="stack">
           {snapshot.runs.map((run) => (
@@ -98,6 +70,27 @@ export function DashboardPage() {
               <div className="artifact-kind">{artifact.kind}</div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className="panel panel-wide">
+        <div className="panel-header">
+          <h2>Live Logs</h2>
+          <span>{logs.length}</span>
+        </div>
+        <div className="stack log-stack">
+          {logs
+            .slice()
+            .reverse()
+            .map((line) => (
+              <div key={line.event_id} className="log-row">
+                <span className={`badge badge-${line.level.toLowerCase()}`}>{line.level}</span>
+                <span className="log-time">{new Date(line.at).toLocaleTimeString()}</span>
+                <span className="log-logger">{line.logger}</span>
+                {line.run_id ? <span className="log-run">{line.run_id}</span> : null}
+                <span className="log-message">{line.message}</span>
+              </div>
+            ))}
         </div>
       </section>
     </div>

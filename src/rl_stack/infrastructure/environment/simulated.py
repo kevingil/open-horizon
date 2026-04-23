@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..contracts import EnvironmentRunner
-from ..models import TaskSpec
+from ...domain.contracts import EnvironmentRunner
+from ...domain.models import TaskSpec
 
 
 @dataclass

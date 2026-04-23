@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ..contracts import ArtifactStore
-from ..models import ArtifactRecord, DashboardSnapshot, RunDetail, RunManifest, WorkerRecord, WorkerStatus
+from ...domain.contracts import ArtifactStore
+from ...domain.models import (
+    ArtifactRecord,
+    DashboardSnapshot,
+    RunDetail,
+    RunManifest,
+    WorkerRecord,
+    WorkerStatus,
+)
 
 
 @dataclass

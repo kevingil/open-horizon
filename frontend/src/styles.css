@@ -127,6 +127,60 @@ a {
   color: #244aa5;
 }
 
+.log-stack {
+  max-height: 260px;
+  overflow: auto;
+  font-family: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.82rem;
+  gap: 4px;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 64px 88px 140px 120px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.log-row .log-time {
+  color: #555f6b;
+}
+
+.log-row .log-logger {
+  color: #3b4a5a;
+}
+
+.log-row .log-run {
+  color: #244aa5;
+}
+
+.log-row .log-message {
+  color: #18202a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge-info,
+.badge-debug {
+  background: #dce6ff;
+  color: #244aa5;
+}
+
+.badge-warning {
+  background: #ffe7b3;
+  color: #8a5a00;
+}
+
+.badge-error,
+.badge-critical {
+  background: #ffd8d6;
+  color: #a62b1f;
+}
+
 @media (max-width: 820px) {
   .grid {
     grid-template-columns: 1fr;
@@ -134,5 +188,14 @@ a {
 
   .panel-wide {
     grid-column: auto;
+  }
+
+  .log-row {
+    grid-template-columns: 56px 80px 1fr;
+  }
+
+  .log-row .log-logger,
+  .log-row .log-run {
+    display: none;
   }
 }

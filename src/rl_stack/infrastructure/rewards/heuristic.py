@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..contracts import RewardPipeline
-from ..models import RewardPenalty, RewardRecord, TaskSpec, TrajectoryRecord
+from ...domain.contracts import RewardPipeline
+from ...domain.models import RewardPenalty, RewardRecord, TaskSpec, TrajectoryRecord
 
 
 @dataclass

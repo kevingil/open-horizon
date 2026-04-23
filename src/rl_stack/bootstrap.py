@@ -1,25 +1,60 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
-from .services.artifact_store import InMemoryArtifactStore
-from .services.coordinator import LocalRolloutCoordinator
-from .services.environment import SimulatedEnvironmentRunner
-from .services.policy import StaticPolicyServer
-from .services.rewards import HeuristicRewardPipeline
-from .services.tools import LocalToolHarness
+from .application.coordinator import LocalRolloutCoordinator
+from .application.event_bus import EventBus
+from .domain.contracts import ArtifactStore
+from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from .infrastructure.policy.static import StaticPolicyServer
+from .infrastructure.rewards.heuristic import HeuristicRewardPipeline
+from .infrastructure.store.memory import InMemoryArtifactStore
+from .infrastructure.tools.local import LocalToolHarness
+from .settings import Settings
 
 
-def build_application_services(workspace_root: str | Path) -> LocalRolloutCoordinator:
-    root = Path(workspace_root).resolve()
-    artifact_store = InMemoryArtifactStore()
+@dataclass
+class ApplicationServices:
+    coordinator: LocalRolloutCoordinator
+    event_bus: EventBus
+    artifact_store: ArtifactStore
+    settings: Settings
+
+
+def build_application_services(
+    settings: Settings | None = None,
+    *,
+    event_bus: EventBus | None = None,
+) -> ApplicationServices:
+    settings = settings or Settings()
+    root = Path(settings.workspace_root).resolve()
+    bus = event_bus or EventBus()
+    store = InMemoryArtifactStore()
+
+    policy = _build_policy(settings)
+
     coordinator = LocalRolloutCoordinator(
         environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=root),
-        policy_server=StaticPolicyServer(),
+        policy_server=policy,
         reward_pipeline=HeuristicRewardPipeline(),
-        artifact_store=artifact_store,
+        artifact_store=store,
+        event_bus=bus,
         workspace_root=root,
+        max_parallel=settings.max_parallel_rollouts,
     )
-    coordinator.bootstrap()
-    return coordinator
+    return ApplicationServices(
+        coordinator=coordinator,
+        event_bus=bus,
+        artifact_store=store,
+        settings=settings,
+    )
+
+
+def _build_policy(settings: Settings):
+    match settings.policy_backend:
+        case "static":
+            return StaticPolicyServer()
+        case other:
+            raise ValueError(f"Unsupported policy backend: {other}")
