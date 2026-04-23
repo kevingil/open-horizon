@@ -127,6 +127,94 @@ a {
   color: #244aa5;
 }
 
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 8px 0 0;
+  font-size: 0.88rem;
+}
+
+.kv dt {
+  color: #555f6b;
+}
+
+.kv dd {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+.signal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 8px;
+}
+
+.signal-table th,
+.signal-table td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid rgba(24, 32, 42, 0.08);
+}
+
+.signal-table th {
+  color: #3b4a5a;
+  font-weight: 600;
+}
+
+.step-row .step-main {
+  width: 100%;
+}
+
+.step-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.tool-chip {
+  font-size: 0.78rem;
+  background: rgba(36, 74, 165, 0.12);
+  color: #244aa5;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.step-json {
+  margin: 0;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  background: rgba(24, 32, 42, 0.04);
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.step-text {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.muted {
+  color: #555f6b;
+  font-size: 0.82rem;
+}
+
+.errors {
+  color: #a62b1f;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 0.82rem;
+  margin-bottom: 8px;
+}
+
 .log-stack {
   max-height: 260px;
   overflow: auto;

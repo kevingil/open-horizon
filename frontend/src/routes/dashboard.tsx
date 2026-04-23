@@ -28,9 +28,9 @@ export function DashboardPage() {
                 <strong>{run.id}</strong>
                 <span className={`badge badge-${run.status}`}>{run.status}</span>
               </div>
-              <p>{run.model_id}</p>
+              <p className="run-model">{run.model_id}</p>
               <p>
-                {run.infra_target} · ${run.estimated_cost_usd.toFixed(2)}
+                {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
               </p>
             </Link>
           ))}
