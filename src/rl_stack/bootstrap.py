@@ -10,7 +10,7 @@ from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from .infrastructure.policy.claude import ClaudePolicyServer
 from .infrastructure.policy.static import StaticPolicyServer
-from .infrastructure.rewards.heuristic import HeuristicRewardPipeline
+from .infrastructure.rewards.composite import CompositeRewardPipeline
 from .infrastructure.store.memory import InMemoryArtifactStore
 from .infrastructure.store.sqlite import SqliteArtifactStore
 from .infrastructure.tools.local import LocalToolHarness
@@ -43,7 +43,7 @@ def build_application_services(
         environment_runner=environment,
         tool_harness=LocalToolHarness(root=root),
         policy_server=policy,
-        reward_pipeline=HeuristicRewardPipeline(),
+        reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=bus,
         workspace_root=root,
