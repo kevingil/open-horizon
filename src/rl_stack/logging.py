@@ -48,6 +48,8 @@ class EventBusLogHandler:
         self._loop = loop
 
     def __call__(self, logger: Any, method_name: str, event_dict: dict[str, Any]) -> dict[str, Any]:
+        if self._loop.is_closed() or not self._loop.is_running():
+            return event_dict
         with contextlib.suppress(Exception):
             message = str(event_dict.get("event", ""))
             level = str(event_dict.get("level", method_name)).upper()

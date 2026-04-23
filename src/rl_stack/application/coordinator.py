@@ -52,6 +52,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     event_bus: EventBus
     workspace_root: Path
     max_parallel: int = 4
+    max_tokens_per_run: int = 100_000
     _semaphore: asyncio.Semaphore = field(init=False)
 
     def __post_init__(self) -> None:
@@ -103,6 +104,8 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 success_criteria=request.success_criteria or ["manual review"],
             )
             self.environment_runner.create_task(task)
+            if hasattr(self.policy_server, "begin_task"):
+                self.policy_server.begin_task(task)
 
             manifest = RunManifest(
                 id=run_id,
@@ -124,6 +127,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             try:
                 steps, trajectory = await self._run_steps(task, request)
                 reward = self.reward_pipeline.score_trajectory(task, trajectory)
+                cost = self._cost_for(task.id)
                 await self.event_bus.publish(
                     RewardComputed(
                         run_id=run_id,
@@ -133,7 +137,11 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                     )
                 )
                 manifest = manifest.model_copy(
-                    update={"status": RunStatus.completed, "updated_at": datetime.now(UTC)},
+                    update={
+                        "status": RunStatus.completed,
+                        "updated_at": datetime.now(UTC),
+                        "estimated_cost_usd": cost if cost > 0 else manifest.estimated_cost_usd,
+                    },
                 )
                 detail = RunDetail(
                     manifest=manifest,
@@ -190,10 +198,11 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     ) -> tuple[list[TrajectoryStep], TrajectoryRecord]:
         steps: list[TrajectoryStep] = []
         context: list[str] = []
+        errors: list[str] = []
         for index in range(request.horizon):
             action = self.policy_server.generate_action(task, context)
             observation = self.environment_runner.step(task.id, action)
-            self.tool_harness.record_command(f"simulate:{action}")
+            self.tool_harness.record_command(action)
 
             action_step = TrajectoryStep(
                 index=index * 2, actor="policy", kind="action", content=action,
@@ -204,20 +213,44 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             steps.extend([action_step, obs_step])
             await self.event_bus.publish(StepRecorded(run_id=task.id, step=action_step))
             await self.event_bus.publish(StepRecorded(run_id=task.id, step=obs_step))
-            context.append(action)
+            context.append(observation)
             await asyncio.sleep(0)
+
+            if _is_finish(action):
+                break
+
+            tokens = self._tokens_for(task.id)
+            if tokens > self.max_tokens_per_run:
+                errors.append(f"token budget exceeded: {tokens} > {self.max_tokens_per_run}")
+                break
 
         trajectory = TrajectoryRecord(
             id=f"traj-{uuid4().hex[:8]}",
             task_id=task.id,
             steps=steps,
-            summaries=[
-                "Local debug summary",
-                "Trajectory is replayable through saved records",
-            ],
-            timings_ms={"rollout": request.horizon * 75, "reward": 40},
+            summaries=[],
+            timings_ms={},
+            errors=errors,
         )
         return steps, trajectory
+
+    def _tokens_for(self, task_id: str) -> int:
+        fn = getattr(self.policy_server, "total_tokens", None)
+        if fn is None:
+            return 0
+        try:
+            return int(fn(task_id))
+        except Exception:
+            return 0
+
+    def _cost_for(self, task_id: str) -> float:
+        fn = getattr(self.policy_server, "cumulative_cost_usd", None)
+        if fn is None:
+            return 0.0
+        try:
+            return float(fn(task_id))
+        except Exception:
+            return 0.0
 
     async def _publish_worker(
         self, worker_id: str, role: str, status: WorkerStatus, run_id: str | None, detail: str,
@@ -228,6 +261,19 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         if hasattr(self.artifact_store, "set_workers"):
             self.artifact_store.set_workers(list(existing.values()))
         await self.event_bus.publish(WorkerUpdated(run_id=run_id, worker=worker))
+
+
+def _is_finish(action: str) -> bool:
+    import json as _json
+
+    try:
+        payload = _json.loads(action)
+    except _json.JSONDecodeError:
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = payload.get("tool") or payload.get("name")
+    return name == "finish"
 
 
 def _default_artifacts(run_id: str) -> list[ArtifactRecord]:

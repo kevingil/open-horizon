@@ -8,6 +8,7 @@ from .application.event_bus import EventBus
 from .domain.contracts import ArtifactStore, EnvironmentRunner
 from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from .infrastructure.policy.claude import ClaudePolicyServer
 from .infrastructure.policy.static import StaticPolicyServer
 from .infrastructure.rewards.heuristic import HeuristicRewardPipeline
 from .infrastructure.store.memory import InMemoryArtifactStore
@@ -47,6 +48,7 @@ def build_application_services(
         event_bus=bus,
         workspace_root=root,
         max_parallel=settings.max_parallel_rollouts,
+        max_tokens_per_run=settings.max_tokens_per_run,
     )
     return ApplicationServices(
         coordinator=coordinator,
@@ -60,6 +62,17 @@ def _build_policy(settings: Settings):
     match settings.policy_backend:
         case "static":
             return StaticPolicyServer()
+        case "claude":
+            if settings.anthropic_api_key is None:
+                raise ValueError("RL_ANTHROPIC_API_KEY is required for policy_backend=claude")
+            from anthropic import Anthropic
+
+            return ClaudePolicyServer(
+                client=Anthropic(api_key=settings.anthropic_api_key.get_secret_value()),
+                model=settings.claude_model,
+                max_output_tokens=settings.claude_max_output_tokens,
+                max_retries=settings.claude_max_retries,
+            )
         case other:
             raise ValueError(f"Unsupported policy backend: {other}")
 
