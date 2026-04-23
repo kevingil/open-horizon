@@ -42,6 +42,14 @@ export type RolloutFailed = {
   error: string;
 };
 
+export type RolloutCancelled = {
+  kind: "rollout.cancelled";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  reason: string;
+};
+
 export type WorkerUpdated = {
   kind: "worker.updated";
   event_id: string;
@@ -67,5 +75,6 @@ export type DomainEvent =
   | RewardComputed
   | RolloutCompleted
   | RolloutFailed
+  | RolloutCancelled
   | WorkerUpdated
   | LogLine;

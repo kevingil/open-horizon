@@ -42,6 +42,11 @@ class RolloutFailed(_EventBase):
     error: str
 
 
+class RolloutCancelled(_EventBase):
+    kind: Literal["rollout.cancelled"] = "rollout.cancelled"
+    reason: str = "cancelled"
+
+
 class WorkerUpdated(_EventBase):
     kind: Literal["worker.updated"] = "worker.updated"
     worker: WorkerRecord
@@ -61,6 +66,7 @@ DomainEvent = Annotated[
     | RewardComputed
     | RolloutCompleted
     | RolloutFailed
+    | RolloutCancelled
     | WorkerUpdated
     | LogLine,
     Field(discriminator="kind"),

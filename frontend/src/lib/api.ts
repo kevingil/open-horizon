@@ -17,3 +17,10 @@ export async function fetchRun(runId: string): Promise<RunDetail> {
   }
   return response.json();
 }
+
+export async function cancelRun(runId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/api/runs/${runId}/cancel`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`Cancel failed (${response.status})`);
+  }
+}

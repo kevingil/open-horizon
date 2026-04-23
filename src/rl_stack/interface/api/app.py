@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -66,8 +67,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/api/runs", status_code=202)
     async def create_run(request: RolloutRequest, background_tasks: BackgroundTasks):
         # Fire-and-forget: the coordinator emits events; clients watch /ws/events.
-        background_tasks.add_task(_safe_start, services, request)
-        return {"status": "accepted", "prompt": request.prompt}
+        # Allocate run_id here so the caller can cancel before the first event.
+        run_id = f"run-{uuid4().hex[:8]}"
+        background_tasks.add_task(_safe_start, services, request, run_id)
+        return {"status": "accepted", "run_id": run_id, "prompt": request.prompt}
+
+    @app.post("/api/runs/{run_id}/cancel", status_code=202)
+    async def cancel_run(run_id: str):
+        accepted = services.coordinator.request_cancel(run_id)
+        if not accepted:
+            raise HTTPException(status_code=409, detail="Run is already terminal")
+        return {"status": "cancelling", "run_id": run_id}
 
     @app.websocket("/ws/events")
     async def events_ws(websocket: WebSocket) -> None:
@@ -86,11 +96,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-async def _safe_start(services: ApplicationServices, request: RolloutRequest) -> None:
+async def _safe_start(
+    services: ApplicationServices, request: RolloutRequest, run_id: str,
+) -> None:
     # Coordinator already publishes a RolloutFailed event; swallow here so
     # the BackgroundTask doesn't raise into uvicorn.
     with contextlib.suppress(Exception):
-        await services.coordinator.start_rollout(request)
+        await services.coordinator.start_rollout(request, run_id=run_id)
 
 
 app = create_app()

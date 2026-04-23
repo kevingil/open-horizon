@@ -50,7 +50,8 @@ function applyEvent(snapshot: DashboardSnapshot, event: DomainEvent): DashboardS
       const recent_artifacts = [...event.detail.artifacts, ...snapshot.recent_artifacts].slice(0, 10);
       return { ...snapshot, runs, recent_artifacts };
     }
-    case "rollout.failed": {
+    case "rollout.failed":
+    case "rollout.cancelled": {
       const runs = snapshot.runs.map((r) =>
         r.id === event.run_id ? { ...r, status: "failed" as const, updated_at: event.at } : r,
       );

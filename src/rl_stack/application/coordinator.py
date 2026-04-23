@@ -18,6 +18,7 @@ from ..domain.contracts import (
 )
 from ..domain.events import (
     RewardComputed,
+    RolloutCancelled,
     RolloutCompleted,
     RolloutFailed,
     RolloutStarted,
@@ -54,9 +55,22 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     max_parallel: int = 4
     max_tokens_per_run: int = 100_000
     _semaphore: asyncio.Semaphore = field(init=False)
+    _cancelled: set[str] = field(init=False, default_factory=set)
 
     def __post_init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.max_parallel)
+
+    def request_cancel(self, run_id: str) -> bool:
+        """Flag a run for cancellation. Returns False if the run is already
+        known to be terminal, True otherwise (including unknown run_ids, so the
+        caller doesn't need to care about races)."""
+        existing = self.artifact_store.get_run(run_id)
+        if existing is not None and existing.manifest.status in {
+            RunStatus.completed, RunStatus.failed,
+        }:
+            return False
+        self._cancelled.add(run_id)
+        return True
 
     async def bootstrap(self):
         if self.artifact_store.list_runs():
@@ -81,13 +95,15 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
         return self.artifact_store.dashboard()
 
-    async def start_rollout(self, request: RolloutRequest) -> RunDetail:
+    async def start_rollout(
+        self, request: RolloutRequest, *, run_id: str | None = None,
+    ) -> RunDetail:
+        run_id = run_id or f"run-{uuid4().hex[:8]}"
         async with self._semaphore:
-            return await self._execute(request)
+            return await self._execute(request, run_id)
 
-    async def _execute(self, request: RolloutRequest) -> RunDetail:
+    async def _execute(self, request: RolloutRequest, run_id: str) -> RunDetail:
         now = datetime.now(UTC)
-        run_id = f"run-{uuid4().hex[:8]}"
         task_id = f"task-{uuid4().hex[:8]}"
         bind = structlog.contextvars.bound_contextvars(run_id=run_id, task_id=task_id)
         with bind:
@@ -125,7 +141,8 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
 
             try:
-                steps, trajectory = await self._run_steps(task, request)
+                steps, trajectory = await self._run_steps(task, request, run_id)
+                cancelled = "cancelled" in trajectory.errors
                 reward = self.reward_pipeline.score_trajectory(task, trajectory)
                 cost = self._cost_for(task.id)
                 await self.event_bus.publish(
@@ -136,9 +153,10 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                         audit_flags=reward.audit_flags,
                     )
                 )
+                final_status = RunStatus.failed if cancelled else RunStatus.completed
                 manifest = manifest.model_copy(
                     update={
-                        "status": RunStatus.completed,
+                        "status": final_status,
                         "updated_at": datetime.now(UTC),
                         "estimated_cost_usd": cost if cost > 0 else manifest.estimated_cost_usd,
                     },
@@ -151,16 +169,26 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                     artifacts=_default_artifacts(run_id),
                 )
                 self.artifact_store.save_run(detail)
+                worker_status = WorkerStatus.failed if cancelled else WorkerStatus.idle
+                worker_detail = "Rollout cancelled." if cancelled else "Rollout finished; worker idle."
                 await self._publish_worker(
-                    "worker-rollout-local", "rollout", WorkerStatus.idle, run_id,
-                    "Rollout finished; worker idle.",
+                    "worker-rollout-local", "rollout", worker_status, run_id, worker_detail,
                 )
-                await self._publish_worker(
-                    "worker-reward-local", "reward", WorkerStatus.idle, run_id,
-                    "Reward pipeline is available for replay.",
-                )
-                await self.event_bus.publish(RolloutCompleted(run_id=run_id, detail=detail))
-                log.info("rollout.completed", terminal_reward=reward.terminal_reward, steps=len(steps))
+                if cancelled:
+                    await self.event_bus.publish(RolloutCancelled(run_id=run_id))
+                    log.info("rollout.cancelled", steps=len(steps))
+                else:
+                    await self._publish_worker(
+                        "worker-reward-local", "reward", WorkerStatus.idle, run_id,
+                        "Reward pipeline is available for replay.",
+                    )
+                    await self.event_bus.publish(RolloutCompleted(run_id=run_id, detail=detail))
+                    log.info(
+                        "rollout.completed",
+                        terminal_reward=reward.terminal_reward,
+                        steps=len(steps),
+                    )
+                self._cancelled.discard(run_id)
                 return detail
             except Exception as exc:
                 log.exception("rollout.failed")
@@ -191,15 +219,20 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                     f"Rollout failed: {exc}",
                 )
                 await self.event_bus.publish(RolloutFailed(run_id=run_id, error=str(exc)))
+                self._cancelled.discard(run_id)
                 return failed_detail
 
     async def _run_steps(
-        self, task: TaskSpec, request: RolloutRequest
+        self, task: TaskSpec, request: RolloutRequest, run_id: str,
     ) -> tuple[list[TrajectoryStep], TrajectoryRecord]:
         steps: list[TrajectoryStep] = []
         context: list[str] = []
         errors: list[str] = []
         for index in range(request.horizon):
+            if run_id in self._cancelled:
+                errors.append("cancelled")
+                break
+
             action = self.policy_server.generate_action(task, context)
             observation = self.environment_runner.step(task.id, action)
             self.tool_harness.record_command(action)
@@ -211,11 +244,14 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 index=index * 2 + 1, actor="environment", kind="observation", content=observation,
             )
             steps.extend([action_step, obs_step])
-            await self.event_bus.publish(StepRecorded(run_id=task.id, step=action_step))
-            await self.event_bus.publish(StepRecorded(run_id=task.id, step=obs_step))
+            await self.event_bus.publish(StepRecorded(run_id=run_id, step=action_step))
+            await self.event_bus.publish(StepRecorded(run_id=run_id, step=obs_step))
             context.append(observation)
             await asyncio.sleep(0)
 
+            if run_id in self._cancelled:
+                errors.append("cancelled")
+                break
             if _is_finish(action):
                 break
 

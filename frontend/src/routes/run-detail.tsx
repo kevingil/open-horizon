@@ -1,6 +1,6 @@
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { fetchRun } from "../lib/api";
+import { cancelRun, fetchRun } from "../lib/api";
 import type { RunDetail, TrajectoryStep } from "../lib/types";
 
 interface RewardProvenance {
@@ -12,6 +12,18 @@ export function RunDetailPage() {
   const { runId } = useParams({ from: "/runs/$runId" });
   const [run, setRun] = useState<RunDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+
+  const onCancel = async () => {
+    setCancelling(true);
+    try {
+      await cancelRun(runId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   useEffect(() => {
     let active = true;
@@ -57,6 +69,11 @@ export function RunDetailPage() {
           <span className={`badge badge-${run.manifest.status}`}>{run.manifest.status}</span>
         </div>
         <p>{run.task.prompt}</p>
+        {run.manifest.status === "running" || run.manifest.status === "pending" ? (
+          <button className="action-btn" onClick={onCancel} disabled={cancelling}>
+            {cancelling ? "Cancelling..." : "Cancel rollout"}
+          </button>
+        ) : null}
         <dl className="kv">
           <dt>Model</dt>
           <dd>{run.manifest.model_id}</dd>
