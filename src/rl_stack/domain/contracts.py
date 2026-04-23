@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from .models import (
     DashboardSnapshot,
@@ -60,6 +61,10 @@ class ArtifactStore(ABC):
 
     @abstractmethod
     def dashboard(self) -> DashboardSnapshot: ...
+
+    @abstractmethod
+    def total_cost_since(self, since: datetime) -> float:
+        """Sum of estimated_cost_usd across runs created at or after `since`."""
 
 
 class RolloutCoordinator(ABC):

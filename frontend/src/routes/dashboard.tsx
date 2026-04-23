@@ -1,8 +1,29 @@
 import { Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { fetchBudget, type BudgetStatus } from "../lib/api";
 import { useLiveDashboard } from "../lib/store";
 
 export function DashboardPage() {
   const { snapshot, logs, progress, status, error } = useLiveDashboard();
+  const [budget, setBudget] = useState<BudgetStatus | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const b = await fetchBudget();
+        if (active) setBudget(b);
+      } catch {
+        // non-fatal; panel just won't render
+      }
+    }
+    void load();
+    const timer = window.setInterval(() => void load(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   if (error && !snapshot) {
     return <section className="panel">Dashboard error: {error}</section>;
@@ -14,6 +35,29 @@ export function DashboardPage() {
 
   return (
     <div className="grid">
+      {budget && budget.cap_usd > 0 ? (
+        <section className="panel panel-wide budget-panel">
+          <div className="panel-header">
+            <h2>Budget</h2>
+            <span>
+              ${budget.spent_usd.toFixed(4)} / ${budget.cap_usd.toFixed(2)} ·{" "}
+              {budget.window_hours}h
+            </span>
+          </div>
+          <div className={`budget-bar ${budget.exceeded ? "budget-bar-over" : ""}`}>
+            <div
+              className="budget-fill"
+              style={{ width: `${Math.min(100, (budget.spent_usd / budget.cap_usd) * 100)}%` }}
+            />
+          </div>
+          {budget.exceeded ? (
+            <p className="budget-warn">Cap reached - new rollouts will be rejected.</p>
+          ) : budget.remaining_usd !== null ? (
+            <p className="muted">${budget.remaining_usd.toFixed(4)} remaining</p>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="panel">
         <div className="panel-header">
           <h2>Runs</h2>

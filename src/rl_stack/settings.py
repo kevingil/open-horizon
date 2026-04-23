@@ -49,6 +49,8 @@ class Settings(BaseSettings):
 
     # Cost controls
     max_tokens_per_run: int = Field(default=100_000, ge=1)
+    daily_budget_usd: float = Field(default=5.0, ge=0)
+    budget_window_hours: float = Field(default=24.0, gt=0)
 
     # Observability
     log_level: str = Field(default="INFO")

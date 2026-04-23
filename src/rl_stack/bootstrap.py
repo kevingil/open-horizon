@@ -50,6 +50,8 @@ def build_application_services(
         workspace_root=root,
         max_parallel=settings.max_parallel_rollouts,
         max_tokens_per_run=settings.max_tokens_per_run,
+        daily_budget_usd=settings.daily_budget_usd,
+        budget_window_hours=settings.budget_window_hours,
     )
     return ApplicationServices(
         coordinator=coordinator,

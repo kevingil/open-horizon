@@ -59,6 +59,13 @@ class ProgressTicked(_EventBase):
     cost_usd: float = 0.0
 
 
+class BudgetExceeded(_EventBase):
+    kind: Literal["budget.exceeded"] = "budget.exceeded"
+    spent_usd: float
+    cap_usd: float
+    window_hours: float
+
+
 class WorkerUpdated(_EventBase):
     kind: Literal["worker.updated"] = "worker.updated"
     worker: WorkerRecord
@@ -80,6 +87,7 @@ DomainEvent = Annotated[
     | RolloutFailed
     | RolloutCancelled
     | ProgressTicked
+    | BudgetExceeded
     | WorkerUpdated
     | LogLine,
     Field(discriminator="kind"),

@@ -127,6 +127,30 @@ a {
   color: #244aa5;
 }
 
+.budget-panel .budget-bar {
+  height: 10px;
+  border-radius: 6px;
+  background: rgba(24, 32, 42, 0.08);
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.budget-panel .budget-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #0e6a38, #4da37a);
+}
+
+.budget-panel .budget-bar-over .budget-fill {
+  background: linear-gradient(90deg, #a62b1f, #d65a4e);
+}
+
+.budget-warn {
+  color: #a62b1f;
+  font-weight: 600;
+  font-size: 0.85rem;
+  margin: 8px 0 0;
+}
+
 .run-progress {
   font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   font-size: 0.78rem;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from ...domain.contracts import ArtifactStore
 from ...domain.models import (
@@ -31,6 +32,16 @@ class InMemoryArtifactStore(ArtifactStore):
 
     def set_workers(self, workers: list[WorkerRecord]) -> None:
         self.workers = workers
+
+    def total_cost_since(self, since: datetime) -> float:
+        return round(
+            sum(
+                detail.manifest.estimated_cost_usd
+                for detail in self.runs_by_id.values()
+                if detail.manifest.created_at >= since
+            ),
+            6,
+        )
 
     def dashboard(self) -> DashboardSnapshot:
         recent_artifacts: list[ArtifactRecord] = []

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -81,6 +82,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not accepted:
             raise HTTPException(status_code=409, detail="Run is already terminal")
         return {"status": "cancelling", "run_id": run_id}
+
+    @app.get("/api/budget")
+    def budget_status():
+        window = timedelta(hours=settings.budget_window_hours)
+        since = datetime.now(UTC) - window
+        spent = services.artifact_store.total_cost_since(since)
+        cap = settings.daily_budget_usd
+        return {
+            "window_hours": settings.budget_window_hours,
+            "cap_usd": cap,
+            "spent_usd": spent,
+            "remaining_usd": max(cap - spent, 0.0) if cap > 0 else None,
+            "exceeded": bool(cap > 0 and spent >= cap),
+        }
 
     @app.get("/api/rubrics")
     def list_rubrics():

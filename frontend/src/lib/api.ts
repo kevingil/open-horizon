@@ -30,6 +30,22 @@ export interface RubricInfo {
   signals: string[];
 }
 
+export interface BudgetStatus {
+  window_hours: number;
+  cap_usd: number;
+  spent_usd: number;
+  remaining_usd: number | null;
+  exceeded: boolean;
+}
+
+export async function fetchBudget(): Promise<BudgetStatus> {
+  const response = await fetch(`${API_BASE}/api/budget`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch budget");
+  }
+  return response.json();
+}
+
 export async function fetchRubrics(): Promise<RubricInfo[]> {
   const response = await fetch(`${API_BASE}/api/rubrics`);
   if (!response.ok) {

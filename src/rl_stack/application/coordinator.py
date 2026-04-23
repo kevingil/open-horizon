@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +17,7 @@ from ..domain.contracts import (
     ToolHarness,
 )
 from ..domain.events import (
+    BudgetExceeded,
     ProgressTicked,
     RewardComputed,
     RolloutCancelled,
@@ -55,6 +56,8 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     workspace_root: Path
     max_parallel: int = 4
     max_tokens_per_run: int = 100_000
+    daily_budget_usd: float = 0.0  # 0 disables the cap
+    budget_window_hours: float = 24.0
     _semaphore: asyncio.Semaphore = field(init=False)
     _cancelled: set[str] = field(init=False, default_factory=set)
 
@@ -100,8 +103,59 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         self, request: RolloutRequest, *, run_id: str | None = None,
     ) -> RunDetail:
         run_id = run_id or f"run-{uuid4().hex[:8]}"
+        if await self._reject_if_over_budget(request, run_id):
+            return self.artifact_store.get_run(run_id)  # type: ignore[return-value]
         async with self._semaphore:
             return await self._execute(request, run_id)
+
+    async def _reject_if_over_budget(self, request: RolloutRequest, run_id: str) -> bool:
+        if self.daily_budget_usd <= 0:
+            return False
+        since = datetime.now(UTC) - timedelta(hours=self.budget_window_hours)
+        spent = self.artifact_store.total_cost_since(since)
+        if spent < self.daily_budget_usd:
+            return False
+        now = datetime.now(UTC)
+        error_msg = (
+            f"daily budget exceeded: ${spent:.4f} spent in the last "
+            f"{self.budget_window_hours:g}h ≥ cap ${self.daily_budget_usd:.4f}"
+        )
+        manifest = RunManifest(
+            id=run_id,
+            model_id=self.policy_server.policy_name(),
+            dataset_slice="bootstrap",
+            infra_target=request.infra_target,
+            seed=7,
+            status=RunStatus.failed,
+            created_at=now,
+            updated_at=now,
+        )
+        task = TaskSpec(
+            id=f"task-{uuid4().hex[:8]}",
+            prompt=request.prompt,
+            repo_snapshot=request.repo_snapshot,
+            tool_permissions=[ToolPermission.read],
+            horizon=request.horizon,
+            success_criteria=request.success_criteria or ["(budget-blocked)"],
+        )
+        trajectory = TrajectoryRecord(
+            id=f"traj-{uuid4().hex[:8]}", task_id=task.id, steps=[], errors=[error_msg],
+        )
+        reward = self.reward_pipeline.score_trajectory(task, trajectory)
+        detail = RunDetail(
+            manifest=manifest, task=task, trajectory=trajectory, reward=reward,
+            artifacts=_default_artifacts(run_id),
+        )
+        self.artifact_store.save_run(detail)
+        await self.event_bus.publish(
+            BudgetExceeded(
+                run_id=run_id, spent_usd=spent,
+                cap_usd=self.daily_budget_usd, window_hours=self.budget_window_hours,
+            )
+        )
+        await self.event_bus.publish(RolloutFailed(run_id=run_id, error=error_msg))
+        log.warning("rollout.rejected.budget", spent=spent, cap=self.daily_budget_usd)
+        return True
 
     async def _execute(self, request: RolloutRequest, run_id: str) -> RunDetail:
         now = datetime.now(UTC)

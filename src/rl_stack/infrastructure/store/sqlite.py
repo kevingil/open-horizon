@@ -4,6 +4,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from ...domain.contracts import ArtifactStore
@@ -129,6 +130,15 @@ class SqliteArtifactStore(ArtifactStore):
                 ),
             )
         return run
+
+    def total_cost_since(self, since: datetime) -> float:
+        iso = since.isoformat()
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(estimated_cost_usd), 0) FROM runs WHERE created_at >= ?",
+                (iso,),
+            ).fetchone()
+        return round(float(row[0]) if row else 0.0, 6)
 
     def set_workers(self, workers: list[WorkerRecord]) -> None:
         from datetime import UTC, datetime

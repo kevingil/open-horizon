@@ -94,3 +94,28 @@ def test_dashboard_includes_runs_and_recent_artifacts(
     snap = store.dashboard()
     assert any(r.id == "run-1" for r in snap.runs)
     assert snap.recent_artifacts
+
+
+def test_total_cost_since_sums_recent_runs(factory: Callable[[], ArtifactStore]) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    store = factory()
+    now = datetime.now(UTC)
+
+    def _with_cost(run_id: str, at: datetime, cost: float):
+        d = _detail(run_id)
+        return d.model_copy(
+            update={
+                "manifest": d.manifest.model_copy(
+                    update={"created_at": at, "estimated_cost_usd": cost}
+                )
+            }
+        )
+
+    store.save_run(_with_cost("old", now - timedelta(hours=48), 0.20))
+    store.save_run(_with_cost("recent-a", now - timedelta(hours=2), 0.10))
+    store.save_run(_with_cost("recent-b", now - timedelta(minutes=5), 0.05))
+
+    assert store.total_cost_since(now - timedelta(hours=24)) == 0.15
+    assert store.total_cost_since(now - timedelta(hours=72)) == 0.35
+    assert store.total_cost_since(now + timedelta(hours=1)) == 0.0
