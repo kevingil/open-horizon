@@ -9,6 +9,7 @@ description = "Docs-first agentic RL stack with thin observability UI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "anthropic>=0.40,<1",
   "fastapi>=0.115,<1",
   "pydantic>=2.8,<3",
   "pydantic-settings>=2.4,<3",
