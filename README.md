@@ -12,8 +12,8 @@ Three priorities:
 
 ```
 src/rl_stack/
-├── domain/           # Pure models, contracts, events (no I/O)
-├── application/      # Orchestration + event bus
+├── domain/           # Pure models, contracts, events, pure reward signals
+├── application/      # Async coordinator + event bus
 ├── infrastructure/   # Policy / env / rewards / store / tools adapters
 ├── interface/api/    # FastAPI + WebSocket
 ├── settings.py       # pydantic-settings, env-driven
@@ -21,20 +21,37 @@ src/rl_stack/
 └── bootstrap.py      # Wiring
 frontend/             # React + TanStack Router, live via /ws/events
 plans/                # Master plan, track plans, agent-agnostic packets
-tests/                # unit / contract / integration
+tests/                # unit / contract / integration / smoke
 ```
 
-## Core contracts
+## Backends (swap via env)
 
-- `EnvironmentRunner`, `ToolHarness`, `PolicyServer`, `RewardPipeline`, `ArtifactStore`, `RolloutCoordinator`
-- All live in `domain/contracts.py`; every implementation lives in `infrastructure/*`
-- Swap implementations via `Settings.policy_backend` and `bootstrap.py` wiring
+```
+RL_POLICY_BACKEND   static | claude
+RL_STORE_BACKEND    memory | sqlite
+RL_ENV_BACKEND      simulated | repo
+```
+
+Every adapter lives behind the same `domain/contracts.py` ABC, so the
+coordinator doesn't know which backend it's driving.
 
 ## Live observability
 
-- FastAPI `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps, rewards, logs, worker state)
-- Structlog log lines flow into the same stream via `install_event_bus_handler`
-- Frontend subscribes over WebSocket (auto-reconnect), no polling
+- FastAPI `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps,
+  rewards, logs, worker state).
+- Structlog log lines flow into the same stream via `install_event_bus_handler`.
+- Frontend subscribes over WebSocket (auto-reconnect); no polling.
+- Run-detail view parses the rubric-driven reward provenance into a signal
+  breakdown (value, weight, reason).
+
+## Reward iteration
+
+Reward is a pure `RubricSpec` of signal functions
+(`domain/rewards.py`): step-count, error-penalty, success-criteria-match,
+finish-detection. Swap `CompositeRewardPipeline.rubric` to iterate; stored
+trajectories can be re-scored without re-running rollouts, and every
+`RewardRecord` carries the rubric name + per-signal breakdown in its
+provenance.
 
 ## Local Startup
 
@@ -42,7 +59,8 @@ Backend:
 
 ```bash
 pip install -e '.[dev]'
-uvicorn rl_stack.interface.api.app:app --reload
+cp .env.example .env     # fill RL_ANTHROPIC_API_KEY when using Claude
+make dev
 ```
 
 Frontend:
@@ -62,11 +80,22 @@ make check    # lint + test
 make dev      # uvicorn --reload
 ```
 
+### Smoke test (optional, real API)
+
+```bash
+RL_SMOKE_API_KEY=sk-ant-... pytest tests/smoke -v
+```
+
+Runs one real Haiku rollout against a tiny tempdir repo; designed to cost
+well under a cent per invocation.
+
 ## Configuration
 
-All settings are env-driven with the `RL_` prefix (see `src/rl_stack/settings.py`):
+All settings are env-driven with the `RL_` prefix (see `.env.example`).
+Highlights:
 
-- `RL_POLICY_BACKEND=static` (future: `claude`, `vllm`)
-- `RL_MAX_PARALLEL_ROLLOUTS=4`
-- `RL_LOG_LEVEL=INFO` · `RL_LOG_JSON=false`
-- `RL_WORKSPACE_ROOT=.` · `RL_ARTIFACTS_DIR=./artifacts`
+- `RL_POLICY_BACKEND=claude` · `RL_ANTHROPIC_API_KEY` · `RL_CLAUDE_MODEL`
+- `RL_STORE_BACKEND=sqlite` (persists at `$RL_ARTIFACTS_DIR/runs.db`)
+- `RL_ENV_BACKEND=repo` (per-rollout tempdir snapshot via `git ls-files`)
+- `RL_MAX_TOKENS_PER_RUN` enforces a per-run cost ceiling; the coordinator
+  aborts with a trajectory error when exceeded.
