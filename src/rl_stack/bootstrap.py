@@ -9,7 +9,7 @@ from .domain.contracts import ArtifactStore, EnvironmentRunner
 from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.sandbox import build_sandbox
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from .infrastructure.policy.claude import ClaudePolicyServer
+from .infrastructure.policy.openai_compat import OpenAICompatPolicyServer
 from .infrastructure.policy.static import StaticPolicyServer
 from .infrastructure.rewards.composite import CompositeRewardPipeline
 from .infrastructure.store.memory import InMemoryArtifactStore
@@ -65,16 +65,19 @@ def _build_policy(settings: Settings):
     match settings.policy_backend:
         case "static":
             return StaticPolicyServer()
-        case "claude":
-            if settings.anthropic_api_key is None:
-                raise ValueError("RL_ANTHROPIC_API_KEY is required for policy_backend=claude")
-            from anthropic import Anthropic
+        case "openai":
+            from openai import OpenAI
 
-            return ClaudePolicyServer(
-                client=Anthropic(api_key=settings.anthropic_api_key.get_secret_value()),
-                model=settings.claude_model,
-                max_output_tokens=settings.claude_max_output_tokens,
-                max_retries=settings.claude_max_retries,
+            api_key = (
+                settings.llm_api_key.get_secret_value()
+                if settings.llm_api_key is not None
+                else "not-needed"  # local providers (vLLM, Ollama) don't require a key
+            )
+            return OpenAICompatPolicyServer(
+                client=OpenAI(api_key=api_key, base_url=settings.llm_base_url),
+                model=settings.llm_model,
+                max_output_tokens=settings.llm_max_output_tokens,
+                max_retries=settings.llm_max_retries,
             )
         case other:
             raise ValueError(f"Unsupported policy backend: {other}")

@@ -27,18 +27,44 @@ tests/                # unit / contract / integration / smoke
 ## Backends (swap via env)
 
 ```
-RL_POLICY_BACKEND   static | claude
+RL_POLICY_BACKEND   static | openai
 RL_STORE_BACKEND    memory | sqlite
 RL_ENV_BACKEND      simulated | repo
+RL_ENV_SANDBOX      none   | docker
 ```
 
 Every adapter lives behind the same `domain/contracts.py` ABC, so the
 coordinator doesn't know which backend it's driving.
 
+## Policy: any OpenAI-compatible provider
+
+The `openai` backend talks to anything that speaks OpenAI's Chat Completions
+API: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp server, Anthropic via
+their compat surface. Pick the provider with three env vars:
+
+```bash
+# OpenAI proper:
+RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-4o-mini
+
+# Local vLLM (the vllm:* prefix marks it $0 in cost tracking):
+RL_LLM_BASE_URL=http://127.0.0.1:8000/v1
+RL_LLM_MODEL=vllm:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_API_KEY=not-needed
+
+# Ollama:
+RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
+RL_LLM_MODEL=ollama:qwen2.5:7b
+
+# Anthropic via OpenAI-compat:
+RL_LLM_BASE_URL=https://api.anthropic.com/v1/
+RL_LLM_API_KEY=sk-ant-...
+RL_LLM_MODEL=claude-haiku-4-5
+```
+
 ## Live observability
 
 - FastAPI `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps,
-  rewards, logs, worker state).
+  rewards, logs, worker state, progress, cancellation, budget).
 - Structlog log lines flow into the same stream via `install_event_bus_handler`.
 - Frontend subscribes over WebSocket (auto-reconnect); no polling.
 - Run-detail view parses the rubric-driven reward provenance into a signal
@@ -48,10 +74,15 @@ coordinator doesn't know which backend it's driving.
 
 Reward is a pure `RubricSpec` of signal functions
 (`domain/rewards.py`): step-count, error-penalty, success-criteria-match,
-finish-detection. Swap `CompositeRewardPipeline.rubric` to iterate; stored
-trajectories can be re-scored without re-running rollouts, and every
-`RewardRecord` carries the rubric name + per-signal breakdown in its
-provenance.
+finish-detection, tests-pass. Swap `CompositeRewardPipeline.rubric` to
+iterate; stored trajectories can be re-scored without re-running rollouts,
+and every `RewardRecord` carries the rubric name + per-signal breakdown in
+its provenance.
+
+```bash
+rl-replay --list                                   # registered rubrics
+rl-replay --run run-abc123 --rubric strict-finish-v1
+```
 
 ## Local Startup
 
@@ -59,7 +90,7 @@ Backend:
 
 ```bash
 pip install -e '.[dev]'
-cp .env.example .env     # fill RL_ANTHROPIC_API_KEY when using Claude
+cp .env.example .env     # fill RL_LLM_API_KEY when using openai backend
 make dev
 ```
 
@@ -83,19 +114,29 @@ make dev      # uvicorn --reload
 ### Smoke test (optional, real API)
 
 ```bash
-RL_SMOKE_API_KEY=sk-ant-... pytest tests/smoke -v
+# OpenAI default:
+RL_SMOKE_API_KEY=sk-... pytest tests/smoke -v
+
+# Against a local vLLM:
+RL_SMOKE_API_KEY=not-needed \
+RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \
+RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \
+    pytest tests/smoke -v
 ```
 
-Runs one real Haiku rollout against a tiny tempdir repo; designed to cost
-well under a cent per invocation.
+Runs one real LLM rollout against a tiny tempdir repo; designed to cost well
+under a cent per invocation against gpt-4o-mini.
 
 ## Configuration
 
 All settings are env-driven with the `RL_` prefix (see `.env.example`).
 Highlights:
 
-- `RL_POLICY_BACKEND=claude` · `RL_ANTHROPIC_API_KEY` · `RL_CLAUDE_MODEL`
+- `RL_POLICY_BACKEND=openai` · `RL_LLM_API_KEY` · `RL_LLM_BASE_URL` · `RL_LLM_MODEL`
 - `RL_STORE_BACKEND=sqlite` (persists at `$RL_ARTIFACTS_DIR/runs.db`)
 - `RL_ENV_BACKEND=repo` (per-rollout tempdir snapshot via `git ls-files`)
-- `RL_MAX_TOKENS_PER_RUN` enforces a per-run cost ceiling; the coordinator
-  aborts with a trajectory error when exceeded.
+- `RL_ENV_SANDBOX=docker` (auto-falls-back to `none` if Docker is missing)
+- `RL_MAX_TOKENS_PER_RUN` per-run cost ceiling; the coordinator aborts with
+  a trajectory error when exceeded.
+- `RL_DAILY_BUDGET_USD` rolling-window USD cap; new rollouts are refused
+  with a `BudgetExceeded` event when reached.

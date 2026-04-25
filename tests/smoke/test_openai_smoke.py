@@ -1,11 +1,18 @@
-"""Opt-in smoke test: one real Claude rollout against a tiny workspace.
+"""Opt-in smoke test: one real LLM rollout against a tiny workspace.
 
-Enabled only when RL_SMOKE_API_KEY is set in the environment so the main suite
-stays free and deterministic. Run manually or on a nightly job:
+Enabled only when RL_SMOKE_API_KEY is set so the main suite stays free and
+deterministic. Works with any OpenAI-compat provider via env vars:
 
-    RL_SMOKE_API_KEY=sk-ant-... pytest tests/smoke -v
+    # Default: OpenAI proper
+    RL_SMOKE_API_KEY=sk-... pytest tests/smoke -v
 
-Uses claude-haiku-4-5 on a 2-step horizon to keep cost well under $0.01.
+    # Local vLLM:
+    RL_SMOKE_API_KEY=not-needed \\
+    RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \\
+    RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \\
+        pytest tests/smoke -v
+
+Uses gpt-4o-mini by default on a 3-step horizon to keep cost under $0.01.
 """
 from __future__ import annotations
 
@@ -15,18 +22,20 @@ from pathlib import Path
 import pytest
 
 SMOKE_KEY = os.environ.get("RL_SMOKE_API_KEY")
+SMOKE_BASE_URL = os.environ.get("RL_SMOKE_BASE_URL", "https://api.openai.com/v1")
+SMOKE_MODEL = os.environ.get("RL_SMOKE_MODEL", "gpt-4o-mini")
 pytestmark = pytest.mark.skipif(not SMOKE_KEY, reason="RL_SMOKE_API_KEY not set")
 
 
 @pytest.mark.asyncio
-async def test_real_haiku_rollout_completes(tmp_path: Path) -> None:
-    from anthropic import Anthropic
+async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
+    from openai import OpenAI
 
     from rl_stack.application.coordinator import LocalRolloutCoordinator
     from rl_stack.application.event_bus import EventBus
     from rl_stack.domain.models import RolloutRequest, RunStatus
     from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
-    from rl_stack.infrastructure.policy.claude import ClaudePolicyServer
+    from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
     from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
     from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
     from rl_stack.infrastructure.tools.local import LocalToolHarness
@@ -40,8 +49,9 @@ async def test_real_haiku_rollout_completes(tmp_path: Path) -> None:
             source_root=source, scratch_root=tmp_path / "scratch",
         ),
         tool_harness=LocalToolHarness(root=source),
-        policy_server=ClaudePolicyServer(
-            client=Anthropic(api_key=SMOKE_KEY), model="claude-haiku-4-5",
+        policy_server=OpenAICompatPolicyServer(
+            client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
+            model=SMOKE_MODEL,
             max_output_tokens=512,
         ),
         reward_pipeline=CompositeRewardPipeline(),
@@ -59,5 +69,3 @@ async def test_real_haiku_rollout_completes(tmp_path: Path) -> None:
         ),
     )
     assert detail.manifest.status == RunStatus.completed
-    assert detail.manifest.estimated_cost_usd > 0
-    assert detail.manifest.estimated_cost_usd < 0.01

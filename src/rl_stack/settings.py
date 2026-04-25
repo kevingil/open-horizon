@@ -20,14 +20,17 @@ class Settings(BaseSettings):
     workspace_root: Path = Field(default=Path("."))
     artifacts_dir: Path = Field(default=Path("./artifacts"))
 
-    # Policy backend: "static" (dev stub) or "claude".
+    # Policy backend: "static" (dev stub) or "openai" (any OpenAI-compatible
+    # endpoint: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp, ...).
     policy_backend: str = Field(default="static")
 
-    # Claude policy settings
-    anthropic_api_key: SecretStr | None = Field(default=None)
-    claude_model: str = Field(default="claude-haiku-4-5")
-    claude_max_output_tokens: int = Field(default=2048, ge=1)
-    claude_max_retries: int = Field(default=3, ge=0)
+    # OpenAI-compat policy settings. base_url + api_key + model is the
+    # "what server, what model" triple that selects a provider.
+    llm_api_key: SecretStr | None = Field(default=None)
+    llm_base_url: str = Field(default="https://api.openai.com/v1")
+    llm_model: str = Field(default="gpt-4o-mini")
+    llm_max_output_tokens: int = Field(default=2048, ge=1)
+    llm_max_retries: int = Field(default=3, ge=0)
 
     # Artifact store backend: "memory" or "sqlite".
     store_backend: str = Field(default="memory")
