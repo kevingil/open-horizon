@@ -5,7 +5,15 @@ from pathlib import Path
 
 from .application.coordinator import LocalRolloutCoordinator
 from .application.event_bus import EventBus
-from .domain.contracts import ArtifactStore, EnvironmentRunner
+from .application.training import TrainingService
+from .domain.contracts import (
+    AdapterRegistry,
+    ArtifactStore,
+    EnvironmentRunner,
+    Trainer,
+    TrainingStore,
+)
+from .infrastructure.adapters.local import LocalAdapterRegistry
 from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.sandbox import build_sandbox
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
@@ -15,6 +23,9 @@ from .infrastructure.rewards.composite import CompositeRewardPipeline
 from .infrastructure.store.memory import InMemoryArtifactStore
 from .infrastructure.store.sqlite import SqliteArtifactStore
 from .infrastructure.tools.local import LocalToolHarness
+from .infrastructure.training.memory_store import InMemoryTrainingStore
+from .infrastructure.training.sqlite_store import SqliteTrainingStore
+from .infrastructure.training.stub import StubTrainer
 from .settings import Settings
 
 
@@ -23,6 +34,9 @@ class ApplicationServices:
     coordinator: LocalRolloutCoordinator
     event_bus: EventBus
     artifact_store: ArtifactStore
+    training_service: TrainingService
+    training_store: TrainingStore
+    adapter_registry: AdapterRegistry
     settings: Settings
 
 
@@ -35,6 +49,9 @@ def build_application_services(
     root = Path(settings.workspace_root).resolve()
     bus = event_bus or EventBus()
     store = _build_store(settings)
+    training_store = _build_training_store(settings)
+    adapter_registry = LocalAdapterRegistry(root=settings.adapters_dir)
+    trainer = _build_trainer(settings)
 
     policy = _build_policy(settings)
 
@@ -53,10 +70,20 @@ def build_application_services(
         daily_budget_usd=settings.daily_budget_usd,
         budget_window_hours=settings.budget_window_hours,
     )
+    training_service = TrainingService(
+        trainer=trainer,
+        artifact_store=store,
+        training_store=training_store,
+        adapter_registry=adapter_registry,
+        event_bus=bus,
+    )
     return ApplicationServices(
         coordinator=coordinator,
         event_bus=bus,
         artifact_store=store,
+        training_service=training_service,
+        training_store=training_store,
+        adapter_registry=adapter_registry,
         settings=settings,
     )
 
@@ -109,3 +136,24 @@ def _build_store(settings: Settings) -> ArtifactStore:
             return SqliteArtifactStore(path=settings.artifacts_dir / "runs.db")
         case other:
             raise ValueError(f"Unsupported store backend: {other}")
+
+
+def _build_training_store(settings: Settings) -> TrainingStore:
+    match settings.training_store_backend:
+        case "memory":
+            return InMemoryTrainingStore()
+        case "sqlite":
+            return SqliteTrainingStore(path=settings.artifacts_dir / "training.db")
+        case other:
+            raise ValueError(f"Unsupported training store backend: {other}")
+
+
+def _build_trainer(settings: Settings) -> Trainer:
+    match settings.trainer_backend:
+        case "stub":
+            return StubTrainer(default_step_delay_s=settings.train_step_delay_s)
+        case other:
+            raise ValueError(
+                f"Unsupported trainer backend: {other} "
+                "(only 'stub' is wired in 3.2; 'grpo' arrives in 3.6)"
+            )

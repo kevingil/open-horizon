@@ -55,6 +55,12 @@ class Settings(BaseSettings):
     daily_budget_usd: float = Field(default=5.0, ge=0)
     budget_window_hours: float = Field(default=24.0, gt=0)
 
+    # Training
+    trainer_backend: str = Field(default="stub")  # "stub" (default) or "grpo" (3.6)
+    training_store_backend: str = Field(default="memory")  # "memory" or "sqlite"
+    adapters_dir: Path = Field(default=Path("./artifacts/adapters"))
+    train_step_delay_s: float = Field(default=0.0, ge=0)
+
     # Observability
     log_level: str = Field(default="INFO")
     log_json: bool = Field(default=False)
