@@ -119,3 +119,73 @@ class RolloutRequest(BaseModel):
     infra_target: str = "mac-local"
     horizon: int = Field(default=6, ge=1)
     success_criteria: list[str] = Field(default_factory=list)
+    # Optional adapter id; the policy server may use it (vLLM mounts LoRAs by
+    # name, OpenAI proper ignores it). The coordinator stamps it on the
+    # resulting RunManifest so eval harnesses can group rollouts by adapter.
+    adapter_id: str | None = None
+
+
+# --- Training / adapters / eval --------------------------------------------
+
+
+class TrainingStatus(str, Enum):
+    pending = "pending"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class TrainingMetricPoint(BaseModel):
+    """One point on a training run's metric series."""
+
+    step: int = Field(ge=0)
+    loss: float
+    mean_reward: float | None = None
+    kl: float | None = None
+    extra: dict[str, float] = Field(default_factory=dict)
+
+
+class AdapterRecord(BaseModel):
+    """A trained adapter (or stub) registered with the AdapterRegistry."""
+
+    id: str
+    parent_id: str | None = None
+    base_model: str
+    training_run_id: str | None = None
+    eval_score: float | None = None
+    path: str
+    tags: list[str] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class TrainingRunRecord(BaseModel):
+    """One training run from a parent adapter to a (proposed) child adapter."""
+
+    id: str
+    status: TrainingStatus = TrainingStatus.pending
+    adapter_in: str | None = None
+    adapter_out: str | None = None
+    sample_run_ids: list[str] = Field(default_factory=list)
+    hyperparams: dict[str, float | int | str | bool] = Field(default_factory=dict)
+    metrics: list[TrainingMetricPoint] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class EvalTaskScore(BaseModel):
+    task_id: str
+    terminal_reward: float
+
+
+class EvalReport(BaseModel):
+    """An evaluation pass: an adapter scored on a fixed task set."""
+
+    id: str
+    adapter_id: str
+    task_set: str
+    mean_reward: float
+    per_task: list[EvalTaskScore] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)

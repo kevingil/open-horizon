@@ -6,7 +6,17 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from .models import RunDetail, RunManifest, TrajectoryStep, WorkerRecord, utc_now
+from .models import (
+    AdapterRecord,
+    EvalReport,
+    RunDetail,
+    RunManifest,
+    TrainingMetricPoint,
+    TrainingRunRecord,
+    TrajectoryStep,
+    WorkerRecord,
+    utc_now,
+)
 
 
 class _EventBase(BaseModel):
@@ -79,6 +89,47 @@ class LogLine(_EventBase):
     context: dict[str, str] = Field(default_factory=dict)
 
 
+# --- Training / adapter / eval events --------------------------------------
+
+
+class _TrainingEventBase(_EventBase):
+    """Training events ride the same event bus as rollout events; we tag them
+    with `training_run_id` so the UI can route them by training run instead of
+    by rollout `run_id` (which they don't have)."""
+
+    training_run_id: str
+
+
+class TrainingStarted(_TrainingEventBase):
+    kind: Literal["training.started"] = "training.started"
+    record: TrainingRunRecord
+
+
+class TrainingMetric(_TrainingEventBase):
+    kind: Literal["training.metric"] = "training.metric"
+    metric: TrainingMetricPoint
+
+
+class TrainingCompleted(_TrainingEventBase):
+    kind: Literal["training.completed"] = "training.completed"
+    record: TrainingRunRecord
+
+
+class TrainingFailed(_TrainingEventBase):
+    kind: Literal["training.failed"] = "training.failed"
+    error: str
+
+
+class AdapterPublished(_EventBase):
+    kind: Literal["adapter.published"] = "adapter.published"
+    adapter: AdapterRecord
+
+
+class EvalCompleted(_EventBase):
+    kind: Literal["eval.completed"] = "eval.completed"
+    report: EvalReport
+
+
 DomainEvent = Annotated[
     RolloutStarted
     | StepRecorded
@@ -89,6 +140,12 @@ DomainEvent = Annotated[
     | ProgressTicked
     | BudgetExceeded
     | WorkerUpdated
-    | LogLine,
+    | LogLine
+    | TrainingStarted
+    | TrainingMetric
+    | TrainingCompleted
+    | TrainingFailed
+    | AdapterPublished
+    | EvalCompleted,
     Field(discriminator="kind"),
 ]

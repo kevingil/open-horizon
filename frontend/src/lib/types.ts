@@ -83,3 +83,58 @@ export interface RunDetail {
   reward: RewardRecord;
   artifacts: ArtifactRecord[];
 }
+
+export interface AdapterRecord {
+  id: string;
+  parent_id: string | null;
+  base_model: string;
+  training_run_id: string | null;
+  eval_score: number | null;
+  path: string;
+  tags: string[];
+  metadata: Record<string, string>;
+  created_at: string;
+}
+
+export interface TrainingMetricPoint {
+  step: number;
+  loss: number;
+  mean_reward: number | null;
+  kl: number | null;
+  extra: Record<string, number>;
+}
+
+export type TrainingStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface TrainingRunRecord {
+  id: string;
+  status: TrainingStatus;
+  adapter_in: string | null;
+  adapter_out: string | null;
+  sample_run_ids: string[];
+  hyperparams: Record<string, number | string | boolean>;
+  metrics: TrainingMetricPoint[];
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EvalTaskScore {
+  task_id: string;
+  terminal_reward: number;
+}
+
+export interface EvalReport {
+  id: string;
+  adapter_id: string;
+  task_set: string;
+  mean_reward: number;
+  per_task: EvalTaskScore[];
+  created_at: string;
+}
+
+export interface AdapterDetail {
+  adapter: AdapterRecord;
+  children: AdapterRecord[];
+  eval_reports: EvalReport[];
+}

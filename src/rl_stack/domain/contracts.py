@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path
 
 from .models import (
+    AdapterRecord,
     DashboardSnapshot,
+    EvalReport,
     RewardRecord,
     RolloutRequest,
     RunDetail,
     RunManifest,
     TaskSpec,
+    TrainingMetricPoint,
+    TrainingRunRecord,
     TrajectoryRecord,
 )
 
@@ -73,3 +79,68 @@ class RolloutCoordinator(ABC):
 
     @abstractmethod
     async def start_rollout(self, request: RolloutRequest) -> RunDetail: ...
+
+
+# --- Training / adapters / eval --------------------------------------------
+
+
+class AdapterRegistry(ABC):
+    """Persistence + filesystem layout for trained adapters."""
+
+    @abstractmethod
+    def list_adapters(self) -> list[AdapterRecord]: ...
+
+    @abstractmethod
+    def get(self, adapter_id: str) -> AdapterRecord | None: ...
+
+    @abstractmethod
+    def register(self, record: AdapterRecord) -> AdapterRecord: ...
+
+    @abstractmethod
+    def path_for(self, adapter_id: str) -> Path:
+        """Where the adapter's weights / manifest live on disk."""
+
+    @abstractmethod
+    def children_of(self, adapter_id: str | None) -> list[AdapterRecord]:
+        """Direct children in the adapter lineage tree."""
+
+
+class TrainingStore(ABC):
+    """Persistence for TrainingRunRecord and EvalReport. Separate from
+    ArtifactStore (rollouts) so the two responsibilities don't conflate."""
+
+    @abstractmethod
+    def list_training_runs(self) -> list[TrainingRunRecord]: ...
+
+    @abstractmethod
+    def get_training_run(self, training_run_id: str) -> TrainingRunRecord | None: ...
+
+    @abstractmethod
+    def save_training_run(self, record: TrainingRunRecord) -> TrainingRunRecord: ...
+
+    @abstractmethod
+    def list_eval_reports(self, adapter_id: str | None = None) -> list[EvalReport]: ...
+
+    @abstractmethod
+    def save_eval_report(self, report: EvalReport) -> EvalReport: ...
+
+
+# Trainers are synchronous from their own POV (one heavy step). The
+# orchestration layer wraps them in an asyncio.to_thread call and forwards
+# `on_metric` callbacks to the event bus.
+MetricCallback = Callable[[TrainingMetricPoint], None]
+
+
+class Trainer(ABC):
+    @abstractmethod
+    def name(self) -> str: ...
+
+    @abstractmethod
+    def train(
+        self,
+        run: TrainingRunRecord,
+        samples: list[RunDetail],
+        parent: AdapterRecord | None,
+        on_metric: MetricCallback,
+        adapters: AdapterRegistry,
+    ) -> AdapterRecord: ...
