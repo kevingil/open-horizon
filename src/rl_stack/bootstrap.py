@@ -161,8 +161,10 @@ def _build_trainer(settings: Settings) -> Trainer:
     match settings.trainer_backend:
         case "stub":
             return StubTrainer(default_step_delay_s=settings.train_step_delay_s)
+        case "grpo":
+            # Import lazily so users on the stub backend don't need torch.
+            from .infrastructure.training.grpo import GrpoTrainer
+
+            return GrpoTrainer(base_model=settings.grpo_base_model)
         case other:
-            raise ValueError(
-                f"Unsupported trainer backend: {other} "
-                "(only 'stub' is wired in 3.2; 'grpo' arrives in 3.6)"
-            )
+            raise ValueError(f"Unsupported trainer backend: {other}")

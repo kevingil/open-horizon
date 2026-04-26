@@ -70,6 +70,58 @@ RL_LLM_MODEL=claude-haiku-4-5
 - Run-detail view parses the rubric-driven reward provenance into a signal
   breakdown (value, weight, reason).
 
+## Training loop
+
+A closed loop: rollouts feed a trainer, the trainer publishes an adapter,
+the adapter slots into the policy server, the eval harness scores it.
+All visualised live via WebSocket events.
+
+```bash
+# Default: stub trainer (deterministic fake; no ML deps required)
+make dev
+
+# Real GRPO-lite LoRA training
+pip install -e '.[train]'
+RL_TRAINER_BACKEND=grpo \
+RL_GRPO_BASE_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
+    make dev
+
+# Trigger a training run from completed rollouts
+rl-train --samples run-aaa,run-bbb [--parent adapter-x] [--steps 16]
+rl-train --list
+
+# Evaluate an adapter against the built-in task set
+rl-eval --adapter adapter-y
+```
+
+The frontend ships **Adapters**, **Training Runs**, and per-run live charts
+(loss / mean_reward / kl) updated from `training.metric` events. Multi-select
+completed rollouts on the dashboard and click "Train from selection" to kick
+off a run from the UI.
+
+### vLLM / Ollama for serving the policy
+
+The OpenAI-compat policy server already speaks any OpenAI-shape endpoint, so
+swapping in vLLM or Ollama is two env vars:
+
+```bash
+# vLLM hosting Qwen with LoRA mounting:
+vllm serve Qwen/Qwen2.5-7B-Instruct --enable-lora \
+    --lora-modules adapter-aaa=./artifacts/adapters/adapter-aaa
+RL_POLICY_BACKEND=openai \
+RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
+RL_LLM_MODEL=vllm:adapter-aaa \
+    make dev
+
+# Ollama:
+RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
+RL_LLM_MODEL=ollama:qwen2.5:7b \
+    make dev
+```
+
+`vllm:*` / `ollama:*` / `local:*` model id prefixes are treated as $0 cost
+in the dashboard so self-hosted rollouts don't fake spend.
+
 ## Reward iteration
 
 Reward is a pure `RubricSpec` of signal functions

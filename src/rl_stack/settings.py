@@ -56,10 +56,12 @@ class Settings(BaseSettings):
     budget_window_hours: float = Field(default=24.0, gt=0)
 
     # Training
-    trainer_backend: str = Field(default="stub")  # "stub" (default) or "grpo" (3.6)
+    trainer_backend: str = Field(default="stub")  # "stub" (default) or "grpo"
     training_store_backend: str = Field(default="memory")  # "memory" or "sqlite"
     adapters_dir: Path = Field(default=Path("./artifacts/adapters"))
     train_step_delay_s: float = Field(default=0.0, ge=0)
+    # GRPO trainer (only consulted when RL_TRAINER_BACKEND=grpo).
+    grpo_base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
 
     # Observability
     log_level: str = Field(default="INFO")
