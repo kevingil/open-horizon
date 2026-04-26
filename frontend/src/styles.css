@@ -175,6 +175,121 @@ a {
   cursor: not-allowed;
 }
 
+.app-nav {
+  display: flex;
+  gap: 12px;
+  font-size: 0.92rem;
+  align-items: center;
+}
+
+.app-nav a {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.6);
+  color: #18202a;
+  border: 1px solid rgba(24, 32, 42, 0.08);
+}
+
+.app-nav a.active {
+  background: rgba(36, 74, 165, 0.12);
+  color: #244aa5;
+  border-color: rgba(36, 74, 165, 0.35);
+}
+
+.adapter-tree,
+.adapter-children {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.adapter-children {
+  padding-left: 24px;
+  border-left: 1px dashed rgba(24, 32, 42, 0.18);
+  margin-top: 6px;
+}
+
+.adapter-tree > li,
+.adapter-children > li {
+  margin-bottom: 8px;
+}
+
+.adapter-card {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(242, 244, 248, 0.85);
+  border: 1px solid rgba(24, 32, 42, 0.06);
+}
+
+.adapter-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.train-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: rgba(36, 74, 165, 0.08);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.run-card-selected {
+  outline: 2px solid #244aa5;
+}
+
+.run-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-select input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.line-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.line-chart .chart-grid {
+  stroke: rgba(24, 32, 42, 0.12);
+  stroke-width: 1;
+}
+
+.line-chart .chart-tick {
+  fill: #555f6b;
+  font-size: 10px;
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+.line-chart .chart-axis-label {
+  fill: #3b4a5a;
+  font-size: 11px;
+}
+
+.line-chart .chart-legend {
+  fill: #18202a;
+  font-size: 11px;
+  dominant-baseline: middle;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #555f6b;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .action-btn-neutral {
   border-color: rgba(36, 74, 165, 0.35);
   background: rgba(220, 230, 255, 0.7);

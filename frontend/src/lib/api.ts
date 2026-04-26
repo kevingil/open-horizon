@@ -1,4 +1,11 @@
-import type { DashboardSnapshot, RunDetail } from "./types";
+import type {
+  AdapterDetail,
+  AdapterRecord,
+  DashboardSnapshot,
+  EvalReport,
+  RunDetail,
+  TrainingRunRecord,
+} from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
@@ -71,4 +78,52 @@ export async function rescoreRun(runId: string, rubric: string): Promise<Rescore
     throw new Error(`Rescore failed (${response.status})`);
   }
   return response.json();
+}
+
+export async function fetchAdapters(): Promise<AdapterRecord[]> {
+  const r = await fetch(`${API_BASE}/api/adapters`);
+  if (!r.ok) throw new Error("Failed to fetch adapters");
+  return r.json();
+}
+
+export async function fetchAdapter(id: string): Promise<AdapterDetail> {
+  const r = await fetch(`${API_BASE}/api/adapters/${id}`);
+  if (!r.ok) throw new Error(`Failed to fetch adapter ${id}`);
+  return r.json();
+}
+
+export async function runEval(adapterId: string): Promise<EvalReport> {
+  const r = await fetch(`${API_BASE}/api/adapters/${adapterId}/eval`, { method: "POST" });
+  if (!r.ok) throw new Error(`Eval failed (${r.status})`);
+  return r.json();
+}
+
+export async function fetchTrainingRuns(): Promise<TrainingRunRecord[]> {
+  const r = await fetch(`${API_BASE}/api/training-runs`);
+  if (!r.ok) throw new Error("Failed to fetch training runs");
+  return r.json();
+}
+
+export async function fetchTrainingRun(id: string): Promise<TrainingRunRecord> {
+  const r = await fetch(`${API_BASE}/api/training-runs/${id}`);
+  if (!r.ok) throw new Error(`Failed to fetch training run ${id}`);
+  return r.json();
+}
+
+export interface CreateTrainingRunBody {
+  sample_run_ids: string[];
+  parent_adapter_id?: string | null;
+  hyperparams?: Record<string, number | string | boolean>;
+}
+
+export async function createTrainingRun(
+  body: CreateTrainingRunBody,
+): Promise<{ status: string; training_run_id: string }> {
+  const r = await fetch(`${API_BASE}/api/training-runs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`Create training run failed (${r.status})`);
+  return r.json();
 }

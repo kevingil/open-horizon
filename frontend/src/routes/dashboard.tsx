@@ -1,11 +1,17 @@
-import { Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { fetchBudget, type BudgetStatus } from "../lib/api";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { LineChart, type ChartSeries } from "../components/LineChart";
+import { createTrainingRun, fetchBudget, type BudgetStatus } from "../lib/api";
 import { useLiveDashboard } from "../lib/store";
+import type { RunManifest } from "../lib/types";
 
 export function DashboardPage() {
   const { snapshot, logs, progress, status, error } = useLiveDashboard();
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [training, setTraining] = useState(false);
+  const [trainError, setTrainError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     let active = true;
@@ -25,13 +31,56 @@ export function DashboardPage() {
     };
   }, []);
 
+  const rewardSeries = useMemo<ChartSeries[]>(() => {
+    if (!snapshot) return [];
+    // Build a time-ordered series of terminal rewards from manifests; we use
+    // RunDetail when available via the WebSocket completed event, but the
+    // dashboard snapshot only has manifests, so cost is the only signal here.
+    // Show estimated_cost_usd as a proxy on the runs panel; for *reward over
+    // time* we render whatever runs exist (sorted oldest -> newest by
+    // created_at) once we have detail. The detail array isn't on the
+    // snapshot, so we punt on per-run reward here and instead render cost.
+    const ordered = [...snapshot.runs].sort(
+      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
+    );
+    const points = ordered.map((r, i) => ({ x: i, y: r.estimated_cost_usd }));
+    return [{ name: "cost / run", color: "#244aa5", points }];
+  }, [snapshot]);
+
+  const toggleSelected = (runId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
+  };
+
+  const startTraining = async () => {
+    if (selected.size === 0) return;
+    setTraining(true);
+    setTrainError(null);
+    try {
+      const result = await createTrainingRun({
+        sample_run_ids: Array.from(selected),
+      });
+      setSelected(new Set());
+      navigate({ to: "/training/$trainingRunId", params: { trainingRunId: result.training_run_id } });
+    } catch (err) {
+      setTrainError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTraining(false);
+    }
+  };
+
   if (error && !snapshot) {
     return <section className="panel">Dashboard error: {error}</section>;
   }
-
   if (!snapshot) {
     return <section className="panel">Loading dashboard...</section>;
   }
+
+  const completed = snapshot.runs.filter((r) => r.status === "completed");
 
   return (
     <div className="grid">
@@ -65,29 +114,33 @@ export function DashboardPage() {
             {snapshot.runs.length} · <em>{status}</em>
           </span>
         </div>
+        {selected.size > 0 ? (
+          <div className="train-bar">
+            <span>{selected.size} selected</span>
+            <button
+              className="action-btn action-btn-neutral"
+              disabled={training}
+              onClick={startTraining}
+            >
+              {training ? "Starting..." : "Train from selection"}
+            </button>
+            <button className="action-btn" onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
+            {trainError ? <span className="errors">{trainError}</span> : null}
+          </div>
+        ) : null}
         <div className="stack">
-          {snapshot.runs.map((run) => {
-            const p = progress[run.id];
-            return (
-              <Link key={run.id} to="/runs/$runId" params={{ runId: run.id }} className="run-card">
-                <div className="run-title">
-                  <strong>{run.id}</strong>
-                  <span className={`badge badge-${run.status}`}>{run.status}</span>
-                </div>
-                <p className="run-model">{run.model_id}</p>
-                <p>
-                  {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
-                </p>
-                {p ? (
-                  <p className="run-progress">
-                    step {p.step_index + 1}
-                    {p.tool ? ` · ${p.tool}` : ""}
-                    {" · "}${p.cost_usd.toFixed(4)} · {p.tokens.toLocaleString()} tok
-                  </p>
-                ) : null}
-              </Link>
-            );
-          })}
+          {snapshot.runs.map((run) => (
+            <RunCard
+              key={run.id}
+              run={run}
+              progress={progress[run.id]}
+              selected={selected.has(run.id)}
+              selectable={run.status === "completed"}
+              onToggleSelect={() => toggleSelected(run.id)}
+            />
+          ))}
         </div>
       </section>
 
@@ -108,6 +161,16 @@ export function DashboardPage() {
           ))}
         </div>
       </section>
+
+      {completed.length > 1 ? (
+        <section className="panel panel-wide">
+          <div className="panel-header">
+            <h2>Cost over time</h2>
+            <span>{completed.length} runs</span>
+          </div>
+          <LineChart series={rewardSeries} xLabel="run #" yLabel="$" />
+        </section>
+      ) : null}
 
       <section className="panel panel-wide">
         <div className="panel-header">
@@ -147,6 +210,51 @@ export function DashboardPage() {
             ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function RunCard({
+  run,
+  progress,
+  selected,
+  selectable,
+  onToggleSelect,
+}: {
+  run: RunManifest;
+  progress: { step_index: number; tool: string | null; tokens: number; cost_usd: number } | undefined;
+  selected: boolean;
+  selectable: boolean;
+  onToggleSelect: () => void;
+}) {
+  return (
+    <div className={`run-card ${selected ? "run-card-selected" : ""}`}>
+      <div className="run-title">
+        <label className="run-select" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={!selectable}
+            onChange={onToggleSelect}
+          />
+          <Link to="/runs/$runId" params={{ runId: run.id }}>
+            <strong>{run.id}</strong>
+          </Link>
+        </label>
+        <span className={`badge badge-${run.status}`}>{run.status}</span>
+      </div>
+      <p className="run-model">{run.model_id}</p>
+      <p>
+        {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
+        {run.adapter_id ? ` · ${run.adapter_id}` : ""}
+      </p>
+      {progress ? (
+        <p className="run-progress">
+          step {progress.step_index + 1}
+          {progress.tool ? ` · ${progress.tool}` : ""}
+          {" · "}${progress.cost_usd.toFixed(4)} · {progress.tokens.toLocaleString()} tok
+        </p>
+      ) : null}
     </div>
   );
 }

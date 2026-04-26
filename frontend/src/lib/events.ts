@@ -1,4 +1,13 @@
-import type { RunDetail, RunManifest, TrajectoryStep, WorkerRecord } from "./types";
+import type {
+  AdapterRecord,
+  EvalReport,
+  RunDetail,
+  RunManifest,
+  TrainingMetricPoint,
+  TrainingRunRecord,
+  TrajectoryStep,
+  WorkerRecord,
+} from "./types";
 
 export type RolloutStarted = {
   kind: "rollout.started";
@@ -80,6 +89,68 @@ export type LogLine = {
   context: Record<string, string>;
 };
 
+export type BudgetExceeded = {
+  kind: "budget.exceeded";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  spent_usd: number;
+  cap_usd: number;
+  window_hours: number;
+};
+
+export type TrainingStarted = {
+  kind: "training.started";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  training_run_id: string;
+  record: TrainingRunRecord;
+};
+
+export type TrainingMetric = {
+  kind: "training.metric";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  training_run_id: string;
+  metric: TrainingMetricPoint;
+};
+
+export type TrainingCompleted = {
+  kind: "training.completed";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  training_run_id: string;
+  record: TrainingRunRecord;
+};
+
+export type TrainingFailed = {
+  kind: "training.failed";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  training_run_id: string;
+  error: string;
+};
+
+export type AdapterPublished = {
+  kind: "adapter.published";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  adapter: AdapterRecord;
+};
+
+export type EvalCompleted = {
+  kind: "eval.completed";
+  event_id: string;
+  at: string;
+  run_id: string | null;
+  report: EvalReport;
+};
+
 export type DomainEvent =
   | RolloutStarted
   | StepRecorded
@@ -88,5 +159,12 @@ export type DomainEvent =
   | RolloutFailed
   | RolloutCancelled
   | ProgressTicked
+  | BudgetExceeded
   | WorkerUpdated
-  | LogLine;
+  | LogLine
+  | TrainingStarted
+  | TrainingMetric
+  | TrainingCompleted
+  | TrainingFailed
+  | AdapterPublished
+  | EvalCompleted;
