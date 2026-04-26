@@ -119,6 +119,10 @@ class RolloutRequest(BaseModel):
     infra_target: str = "mac-local"
     horizon: int = Field(default=6, ge=1)
     success_criteria: list[str] = Field(default_factory=list)
+    # Optional adapter id; the policy server may use it (vLLM mounts LoRAs by
+    # name, OpenAI proper ignores it). The coordinator stamps it on the
+    # resulting RunManifest so eval harnesses can group rollouts by adapter.
+    adapter_id: str | None = None
 
 
 # --- Training / adapters / eval --------------------------------------------

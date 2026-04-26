@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .application.coordinator import LocalRolloutCoordinator
+from .application.eval import EvalHarness
 from .application.event_bus import EventBus
 from .application.training import TrainingService
 from .domain.contracts import (
@@ -37,6 +38,7 @@ class ApplicationServices:
     training_service: TrainingService
     training_store: TrainingStore
     adapter_registry: AdapterRegistry
+    eval_harness: EvalHarness
     settings: Settings
 
 
@@ -77,6 +79,12 @@ def build_application_services(
         adapter_registry=adapter_registry,
         event_bus=bus,
     )
+    eval_harness = EvalHarness(
+        coordinator=coordinator,
+        training_store=training_store,
+        adapter_registry=adapter_registry,
+        event_bus=bus,
+    )
     return ApplicationServices(
         coordinator=coordinator,
         event_bus=bus,
@@ -84,6 +92,7 @@ def build_application_services(
         training_service=training_service,
         training_store=training_store,
         adapter_registry=adapter_registry,
+        eval_harness=eval_harness,
         settings=settings,
     )
 

@@ -123,6 +123,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         manifest = RunManifest(
             id=run_id,
             model_id=self.policy_server.policy_name(),
+            adapter_id=request.adapter_id,
             dataset_slice="bootstrap",
             infra_target=request.infra_target,
             seed=7,
@@ -181,6 +182,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             manifest = RunManifest(
                 id=run_id,
                 model_id=self.policy_server.policy_name(),
+                adapter_id=request.adapter_id,
                 dataset_slice="bootstrap",
                 infra_target=request.infra_target,
                 seed=7,
