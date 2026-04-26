@@ -8,14 +8,28 @@ from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
+from ...application.eval import EvalTask
 from ...application.rescore import rescore_run
+from ...application.training import TrainingRequest
 from ...bootstrap import ApplicationServices, build_application_services
 from ...domain.events import RewardComputed
 from ...domain.models import RolloutRequest
 from ...domain.rewards import RUBRICS
 from ...logging import configure_logging, install_event_bus_handler
 from ...settings import Settings
+
+
+class CreateTrainingRunBody(BaseModel):
+    sample_run_ids: list[str] = Field(default_factory=list)
+    parent_adapter_id: str | None = None
+    hyperparams: dict[str, float | int | str | bool] = Field(default_factory=dict)
+
+
+class RunEvalBody(BaseModel):
+    tasks: list[EvalTask] | None = None
+    task_set: str | None = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -132,6 +146,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "persisted": not dry_run,
             "new_reward": result.new_reward.model_dump(),
         }
+
+    @app.get("/api/adapters")
+    def list_adapters():
+        return services.adapter_registry.list_adapters()
+
+    @app.get("/api/adapters/{adapter_id}")
+    def get_adapter(adapter_id: str):
+        adapter = services.adapter_registry.get(adapter_id)
+        if adapter is None:
+            raise HTTPException(status_code=404, detail="Adapter not found")
+        children = services.adapter_registry.children_of(adapter_id)
+        eval_reports = services.training_store.list_eval_reports(adapter_id)
+        return {
+            "adapter": adapter.model_dump(),
+            "children": [c.model_dump() for c in children],
+            "eval_reports": [r.model_dump() for r in eval_reports],
+        }
+
+    @app.post("/api/adapters/{adapter_id}/eval", status_code=202)
+    async def run_eval(adapter_id: str, body: RunEvalBody | None = None):
+        try:
+            report = await services.eval_harness.run(
+                adapter_id,
+                tasks=body.tasks if body else None,
+                task_set=body.task_set if body else None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return report
+
+    @app.get("/api/training-runs")
+    def list_training_runs():
+        return services.training_store.list_training_runs()
+
+    @app.get("/api/training-runs/{training_run_id}")
+    def get_training_run(training_run_id: str):
+        record = services.training_store.get_training_run(training_run_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="Training run not found")
+        return record
+
+    @app.post("/api/training-runs", status_code=202)
+    async def create_training_run(body: CreateTrainingRunBody):
+        record = await services.training_service.start_training(
+            TrainingRequest(
+                sample_run_ids=body.sample_run_ids,
+                parent_adapter_id=body.parent_adapter_id,
+                hyperparams=body.hyperparams,
+            ),
+        )
+        return {"status": "accepted", "training_run_id": record.id}
 
     @app.websocket("/ws/events")
     async def events_ws(websocket: WebSocket) -> None:

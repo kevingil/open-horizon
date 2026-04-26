@@ -29,6 +29,8 @@ dev = [
 
 [project.scripts]
 rl-replay = "rl_stack.interface.cli.replay:main"
+rl-train = "rl_stack.interface.cli.train:main"
+rl-eval = "rl_stack.interface.cli.eval:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
