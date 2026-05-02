@@ -55,6 +55,11 @@ RL_LLM_API_KEY=not-needed
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
 RL_LLM_MODEL=ollama:qwen2.5:7b
 
+# SGLang (drop-in OpenAI-compat; the sglang:* prefix marks it $0):
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1
+RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_API_KEY=not-needed
+
 # Anthropic via OpenAI-compat:
 RL_LLM_BASE_URL=https://api.anthropic.com/v1/
 RL_LLM_API_KEY=sk-ant-...
@@ -99,10 +104,10 @@ The frontend ships **Adapters**, **Training Runs**, and per-run live charts
 completed rollouts on the dashboard and click "Train from selection" to kick
 off a run from the UI.
 
-### vLLM / Ollama for serving the policy
+### vLLM / SGLang / Ollama for serving the policy
 
 The OpenAI-compat policy server already speaks any OpenAI-shape endpoint, so
-swapping in vLLM or Ollama is two env vars:
+swapping in vLLM, SGLang, or Ollama is two env vars:
 
 ```bash
 # vLLM hosting Qwen with LoRA mounting:
@@ -113,14 +118,27 @@ RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
 RL_LLM_MODEL=vllm:adapter-aaa \
     make dev
 
+# SGLang (RadixAttention prefix caching speeds up multi-turn rollouts):
+SGLANG_MODEL=Qwen/Qwen2.5-7B-Instruct \
+SGLANG_LORA_PATHS="adapter-aaa=./artifacts/adapters/adapter-aaa" \
+    scripts/serve_sglang.sh
+RL_POLICY_BACKEND=openai \
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
+RL_LLM_API_KEY=not-needed \
+RL_LLM_MODEL=sglang:adapter-aaa \
+    make dev
+
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 RL_LLM_MODEL=ollama:qwen2.5:7b \
     make dev
 ```
 
-`vllm:*` / `ollama:*` / `local:*` model id prefixes are treated as $0 cost
-in the dashboard so self-hosted rollouts don't fake spend.
+`vllm:*` / `sglang:*` / `ollama:*` / `local:*` model id prefixes are treated
+as $0 cost in the dashboard so self-hosted rollouts don't fake spend.
+
+SGLang isn't supported on macOS — keep Mac on a remote SGLang reachable via
+`RL_LLM_BASE_URL`, or stay on the static / OpenAI policy locally.
 
 ## Reward iteration
 
