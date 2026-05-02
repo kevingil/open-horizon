@@ -1,5 +1,15 @@
 # RL Stack
 
+<p>
+  <a href="https://github.com/sgl-project/sglang">
+    <img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="48">
+  </a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/PrimeIntellect-ai/verifiers">
+    <img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="48">
+  </a>
+</p>
+
 Docs-first starter repo for a one-person, many-agent agentic reinforcement learning stack.
 
 Three priorities:
