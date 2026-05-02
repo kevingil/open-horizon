@@ -108,6 +108,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=409, detail="Run is already terminal")
         return {"status": "cancelling", "run_id": run_id}
 
+    @app.get("/api/config")
+    def runtime_config():
+        runner = services.coordinator.external_rollout_runner
+        policy_name = (
+            runner.policy_name() if runner is not None
+            else services.coordinator.policy_server.policy_name()
+        )
+        return {
+            "env_backend": settings.env_backend,
+            "policy_backend": settings.policy_backend,
+            "policy_name": policy_name,
+            "trainer_backend": settings.trainer_backend,
+            "verifiers_env_id": (
+                settings.verifiers_env_id if settings.env_backend == "verifiers" else None
+            ),
+        }
+
     @app.get("/api/budget")
     def budget_status():
         window = timedelta(hours=settings.budget_window_hours)

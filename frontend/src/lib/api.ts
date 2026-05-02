@@ -53,6 +53,22 @@ export async function fetchBudget(): Promise<BudgetStatus> {
   return response.json();
 }
 
+export interface RuntimeConfig {
+  env_backend: string;
+  policy_backend: string;
+  policy_name: string;
+  trainer_backend: string;
+  verifiers_env_id: string | null;
+}
+
+export async function fetchRuntimeConfig(): Promise<RuntimeConfig> {
+  const response = await fetch(`${API_BASE}/api/config`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch runtime config");
+  }
+  return response.json();
+}
+
 export async function fetchRubrics(): Promise<RubricInfo[]> {
   const response = await fetch(`${API_BASE}/api/rubrics`);
   if (!response.ok) {
