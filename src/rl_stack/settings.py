@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # GRPO trainer (only consulted when RL_TRAINER_BACKEND=grpo).
     grpo_base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
 
+    # SGLang admin endpoints. When sglang_admin_url is set and
+    # sglang_autoload_lora is true, every published adapter is hot-loaded
+    # into the running SGLang server via /load_lora_adapter so eval can
+    # immediately address it as `sglang:<adapter_id>`.
+    sglang_admin_url: str | None = Field(default=None)
+    sglang_autoload_lora: bool = Field(default=False)
+
     # Observability
     log_level: str = Field(default="INFO")
     log_json: bool = Field(default=False)

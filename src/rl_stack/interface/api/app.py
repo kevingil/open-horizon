@@ -17,6 +17,10 @@ from ...bootstrap import ApplicationServices, build_application_services
 from ...domain.events import RewardComputed
 from ...domain.models import RolloutRequest
 from ...domain.rewards import RUBRICS
+from ...infrastructure.policy.sglang_admin import (
+    SglangLoraReloader,
+    register_sglang_lora_autoreload,
+)
 from ...logging import configure_logging, install_event_bus_handler
 from ...settings import Settings
 
@@ -47,6 +51,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         boot = asyncio.create_task(services.coordinator.bootstrap())
         background_tasks_ref.add(boot)
         boot.add_done_callback(background_tasks_ref.discard)
+        if settings.sglang_autoload_lora and settings.sglang_admin_url:
+            reloader = SglangLoraReloader(admin_url=settings.sglang_admin_url)
+            autoreload = register_sglang_lora_autoreload(
+                bus=services.event_bus, reloader=reloader,
+            )
+            background_tasks_ref.add(autoreload)
+            autoreload.add_done_callback(background_tasks_ref.discard)
         yield
 
     app = FastAPI(

@@ -140,6 +140,15 @@ as $0 cost in the dashboard so self-hosted rollouts don't fake spend.
 SGLang isn't supported on macOS — keep Mac on a remote SGLang reachable via
 `RL_LLM_BASE_URL`, or stay on the static / OpenAI policy locally.
 
+#### Hot-loading trained adapters into SGLang
+
+Set `RL_SGLANG_ADMIN_URL=http://127.0.0.1:30000` and
+`RL_SGLANG_AUTOLOAD_LORA=true` and the API tails `AdapterPublished`
+events on the bus, POSTing each freshly trained LoRA to SGLang's
+`/load_lora_adapter` endpoint. After that, `RL_LLM_MODEL=sglang:<adapter_id>`
+routes to the new adapter without a server restart. SGLang must be
+launched with `--enable-lora` (the `serve_sglang.sh` script does this).
+
 ### verifiers as the rollout loop
 
 `RL_ENV_BACKEND=verifiers` delegates the per-step rollout to the
