@@ -35,6 +35,12 @@ train = [
   "transformers>=4.45,<6",
   "peft>=0.12,<2",
 ]
+# Verifiers env backend (RL_ENV_BACKEND=verifiers). For installing Hub
+# envs (rlm, opencode/*, ...) you'll also want the Prime Intellect CLI:
+#   pip install prime  # or `pipx install prime`
+envs = [
+  "verifiers>=0.1.11,<0.2",
+]
 
 [project.scripts]
 rl-replay = "rl_stack.interface.cli.replay:main"

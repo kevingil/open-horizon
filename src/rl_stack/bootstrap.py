@@ -18,6 +18,7 @@ from .infrastructure.adapters.local import LocalAdapterRegistry
 from .infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from .infrastructure.environment.sandbox import build_sandbox
 from .infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from .infrastructure.environment.verifiers_runner import VerifiersRolloutRunner
 from .infrastructure.policy.openai_compat import OpenAICompatPolicyServer
 from .infrastructure.policy.static import StaticPolicyServer
 from .infrastructure.rewards.composite import CompositeRewardPipeline
@@ -58,6 +59,7 @@ def build_application_services(
     policy = _build_policy(settings)
 
     environment = _build_environment(settings, root)
+    external_runner = _build_external_rollout_runner(settings)
 
     coordinator = LocalRolloutCoordinator(
         environment_runner=environment,
@@ -71,6 +73,7 @@ def build_application_services(
         max_tokens_per_run=settings.max_tokens_per_run,
         daily_budget_usd=settings.daily_budget_usd,
         budget_window_hours=settings.budget_window_hours,
+        external_rollout_runner=external_runner,
     )
     training_service = TrainingService(
         trainer=trainer,
@@ -133,8 +136,34 @@ def _build_environment(settings: Settings, root: Path) -> EnvironmentRunner:
                 max_output_bytes=settings.env_max_output_bytes,
                 sandbox=sandbox,
             )
+        case "verifiers":
+            # verifiers owns its own rollout loop; the EnvironmentRunner ABC
+            # is unused on this path. Hand back a no-op so the dataclass
+            # invariant holds.
+            return SimulatedEnvironmentRunner()
         case other:
             raise ValueError(f"Unsupported env backend: {other}")
+
+
+def _build_external_rollout_runner(settings: Settings) -> VerifiersRolloutRunner | None:
+    if settings.env_backend != "verifiers":
+        return None
+    from openai import OpenAI
+
+    api_key = (
+        settings.llm_api_key.get_secret_value()
+        if settings.llm_api_key is not None
+        else "not-needed"
+    )
+    client = OpenAI(api_key=api_key, base_url=settings.llm_base_url)
+    return VerifiersRolloutRunner(
+        client=client,
+        model=settings.llm_model,
+        env_id=settings.verifiers_env_id,
+        env_args=settings.verifiers_env_args,
+        max_concurrent=settings.verifiers_max_concurrent,
+        rollout_timeout_s=settings.verifiers_rollout_timeout_s,
+    )
 
 
 def _build_store(settings: Settings) -> ArtifactStore:

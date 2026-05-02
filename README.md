@@ -29,7 +29,7 @@ tests/                # unit / contract / integration / smoke
 ```
 RL_POLICY_BACKEND   static | openai
 RL_STORE_BACKEND    memory | sqlite
-RL_ENV_BACKEND      simulated | repo
+RL_ENV_BACKEND      simulated | repo | verifiers
 RL_ENV_SANDBOX      none   | docker
 ```
 
@@ -139,6 +139,29 @@ as $0 cost in the dashboard so self-hosted rollouts don't fake spend.
 
 SGLang isn't supported on macOS — keep Mac on a remote SGLang reachable via
 `RL_LLM_BASE_URL`, or stay on the static / OpenAI policy locally.
+
+### verifiers as the rollout loop
+
+`RL_ENV_BACKEND=verifiers` delegates the per-step rollout to the
+[verifiers](https://github.com/PrimeIntellect-ai/verifiers) framework. Its
+`env.rollout(client, model, prompt, ...)` owns the loop and produces both
+the trajectory and a rubric-scored reward in one shot - so on this path
+`CompositeRewardPipeline` is bypassed and verifiers' rubric is the source
+of truth.
+
+```bash
+pip install -e '.[envs]'                     # adds verifiers
+RL_ENV_BACKEND=verifiers \
+RL_VERIFIERS_ENV_ID=vf-math \
+RL_POLICY_BACKEND=openai \
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
+RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct \
+    make dev
+```
+
+`RL_VERIFIERS_ENV_ARGS` is JSON forwarded to `vf.load_environment`. Hub
+envs (`rlm`, `opencode/*`, ...) are installed via the Prime Intellect CLI
+(`pip install prime`).
 
 ## Reward iteration
 
