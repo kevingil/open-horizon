@@ -1,13 +1,20 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { LineChart, type ChartSeries } from "../components/LineChart";
-import { createTrainingRun, fetchBudget, type BudgetStatus } from "../lib/api";
+import {
+  createTrainingRun,
+  fetchBudget,
+  fetchRuntimeConfig,
+  type BudgetStatus,
+  type RuntimeConfig,
+} from "../lib/api";
 import { useLiveDashboard } from "../lib/store";
 import type { RunManifest } from "../lib/types";
 
 export function DashboardPage() {
   const { snapshot, logs, progress, status, error } = useLiveDashboard();
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [training, setTraining] = useState(false);
   const [trainError, setTrainError] = useState<string | null>(null);
@@ -28,6 +35,20 @@ export function DashboardPage() {
     return () => {
       active = false;
       window.clearInterval(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetchRuntimeConfig()
+      .then((c) => {
+        if (active) setConfig(c);
+      })
+      .catch(() => {
+        // non-fatal; pill just stays hidden
+      });
+    return () => {
+      active = false;
     };
   }, []);
 
@@ -112,6 +133,16 @@ export function DashboardPage() {
           <h2>Runs</h2>
           <span>
             {snapshot.runs.length} · <em>{status}</em>
+            {config ? (
+              <span className="badge backend-pill" title={`policy: ${config.policy_name}`}>
+                {config.env_backend}
+                {config.env_backend === "verifiers" && config.verifiers_env_id
+                  ? ` · ${config.verifiers_env_id}`
+                  : ""}
+                {" · "}
+                {config.policy_name}
+              </span>
+            ) : null}
           </span>
         </div>
         {selected.size > 0 ? (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -35,12 +36,23 @@ class Settings(BaseSettings):
     # Artifact store backend: "memory" or "sqlite".
     store_backend: str = Field(default="memory")
 
-    # Environment runner backend: "simulated" or "repo".
+    # Environment runner backend: "simulated", "repo", or "verifiers".
+    # The "verifiers" backend delegates the rollout loop to the verifiers
+    # framework (env.rollout owns the loop; rubric scoring comes from
+    # verifiers, not CompositeRewardPipeline).
     env_backend: str = Field(default="simulated")
 
     # Repo environment guard rails
     env_command_timeout_s: float = Field(default=10.0, gt=0)
     env_max_output_bytes: int = Field(default=16_384, gt=0)
+
+    # verifiers backend (only consulted when RL_ENV_BACKEND=verifiers).
+    # `env_args` is JSON-encoded in the env var, e.g.
+    #   RL_VERIFIERS_ENV_ARGS='{"max_recursion": 4}'
+    verifiers_env_id: str = Field(default="vf-math")
+    verifiers_env_args: dict[str, Any] = Field(default_factory=dict)
+    verifiers_max_concurrent: int = Field(default=4, ge=1)
+    verifiers_rollout_timeout_s: float | None = Field(default=None)
 
     # Sandbox for tool commands: "none" (host subprocess) or "docker".
     # Docker falls back to none if the daemon is unavailable.
@@ -62,6 +74,13 @@ class Settings(BaseSettings):
     train_step_delay_s: float = Field(default=0.0, ge=0)
     # GRPO trainer (only consulted when RL_TRAINER_BACKEND=grpo).
     grpo_base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+
+    # SGLang admin endpoints. When sglang_admin_url is set and
+    # sglang_autoload_lora is true, every published adapter is hot-loaded
+    # into the running SGLang server via /load_lora_adapter so eval can
+    # immediately address it as `sglang:<adapter_id>`.
+    sglang_admin_url: str | None = Field(default=None)
+    sglang_autoload_lora: bool = Field(default=False)
 
     # Observability
     log_level: str = Field(default="INFO")

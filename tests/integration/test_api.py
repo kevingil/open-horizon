@@ -24,6 +24,18 @@ async def test_health_endpoint(app) -> None:
 
 
 @pytest.mark.asyncio
+async def test_config_endpoint_reflects_env_backend(app) -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        r = await client.get("/api/config")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["env_backend"] == "simulated"
+        assert body["policy_backend"] == "static"
+        assert body["policy_name"]
+        assert body["verifiers_env_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_create_run_accepts_and_emits_events(app) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         async with client.stream("GET", "/api/dashboard") as r:

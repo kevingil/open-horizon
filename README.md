@@ -29,7 +29,7 @@ tests/                # unit / contract / integration / smoke
 ```
 RL_POLICY_BACKEND   static | openai
 RL_STORE_BACKEND    memory | sqlite
-RL_ENV_BACKEND      simulated | repo
+RL_ENV_BACKEND      simulated | repo | verifiers
 RL_ENV_SANDBOX      none   | docker
 ```
 
@@ -54,6 +54,11 @@ RL_LLM_API_KEY=not-needed
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
 RL_LLM_MODEL=ollama:qwen2.5:7b
+
+# SGLang (drop-in OpenAI-compat; the sglang:* prefix marks it $0):
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1
+RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_API_KEY=not-needed
 
 # Anthropic via OpenAI-compat:
 RL_LLM_BASE_URL=https://api.anthropic.com/v1/
@@ -99,10 +104,10 @@ The frontend ships **Adapters**, **Training Runs**, and per-run live charts
 completed rollouts on the dashboard and click "Train from selection" to kick
 off a run from the UI.
 
-### vLLM / Ollama for serving the policy
+### vLLM / SGLang / Ollama for serving the policy
 
 The OpenAI-compat policy server already speaks any OpenAI-shape endpoint, so
-swapping in vLLM or Ollama is two env vars:
+swapping in vLLM, SGLang, or Ollama is two env vars:
 
 ```bash
 # vLLM hosting Qwen with LoRA mounting:
@@ -113,14 +118,59 @@ RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
 RL_LLM_MODEL=vllm:adapter-aaa \
     make dev
 
+# SGLang (RadixAttention prefix caching speeds up multi-turn rollouts):
+SGLANG_MODEL=Qwen/Qwen2.5-7B-Instruct \
+SGLANG_LORA_PATHS="adapter-aaa=./artifacts/adapters/adapter-aaa" \
+    scripts/serve_sglang.sh
+RL_POLICY_BACKEND=openai \
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
+RL_LLM_API_KEY=not-needed \
+RL_LLM_MODEL=sglang:adapter-aaa \
+    make dev
+
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
 RL_LLM_MODEL=ollama:qwen2.5:7b \
     make dev
 ```
 
-`vllm:*` / `ollama:*` / `local:*` model id prefixes are treated as $0 cost
-in the dashboard so self-hosted rollouts don't fake spend.
+`vllm:*` / `sglang:*` / `ollama:*` / `local:*` model id prefixes are treated
+as $0 cost in the dashboard so self-hosted rollouts don't fake spend.
+
+SGLang isn't supported on macOS — keep Mac on a remote SGLang reachable via
+`RL_LLM_BASE_URL`, or stay on the static / OpenAI policy locally.
+
+#### Hot-loading trained adapters into SGLang
+
+Set `RL_SGLANG_ADMIN_URL=http://127.0.0.1:30000` and
+`RL_SGLANG_AUTOLOAD_LORA=true` and the API tails `AdapterPublished`
+events on the bus, POSTing each freshly trained LoRA to SGLang's
+`/load_lora_adapter` endpoint. After that, `RL_LLM_MODEL=sglang:<adapter_id>`
+routes to the new adapter without a server restart. SGLang must be
+launched with `--enable-lora` (the `serve_sglang.sh` script does this).
+
+### verifiers as the rollout loop
+
+`RL_ENV_BACKEND=verifiers` delegates the per-step rollout to the
+[verifiers](https://github.com/PrimeIntellect-ai/verifiers) framework. Its
+`env.rollout(client, model, prompt, ...)` owns the loop and produces both
+the trajectory and a rubric-scored reward in one shot - so on this path
+`CompositeRewardPipeline` is bypassed and verifiers' rubric is the source
+of truth.
+
+```bash
+pip install -e '.[envs]'                     # adds verifiers
+RL_ENV_BACKEND=verifiers \
+RL_VERIFIERS_ENV_ID=vf-math \
+RL_POLICY_BACKEND=openai \
+RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
+RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct \
+    make dev
+```
+
+`RL_VERIFIERS_ENV_ARGS` is JSON forwarded to `vf.load_environment`. Hub
+envs (`rlm`, `opencode/*`, ...) are installed via the Prime Intellect CLI
+(`pip install prime`).
 
 ## Reward iteration
 

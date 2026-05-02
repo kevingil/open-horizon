@@ -34,8 +34,9 @@ MODEL_PRICES: dict[str, ModelPrice] = {
     "claude-haiku-4-5": ModelPrice(1.0, 5.0, 1.25, 0.1),
 }
 
-# Model id prefixes that always cost $0 (self-hosted via vLLM, Ollama, etc.).
-ZERO_COST_PREFIXES = ("vllm:", "ollama:", "local:")
+# Model id prefixes that always cost $0 (self-hosted via vLLM, SGLang,
+# Ollama, etc.).
+ZERO_COST_PREFIXES = ("vllm:", "sglang:", "ollama:", "local:")
 
 
 def estimate_cost_usd(

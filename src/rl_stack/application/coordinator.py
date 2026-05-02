@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import structlog
@@ -16,6 +17,11 @@ from ..domain.contracts import (
     RolloutCoordinator,
     ToolHarness,
 )
+
+if TYPE_CHECKING:
+    from ..infrastructure.environment.verifiers_runner import (
+        VerifiersRolloutRunner,
+    )
 from ..domain.events import (
     BudgetExceeded,
     ProgressTicked,
@@ -58,6 +64,11 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     max_tokens_per_run: int = 100_000
     daily_budget_usd: float = 0.0  # 0 disables the cap
     budget_window_hours: float = 24.0
+    # When set, the coordinator delegates the per-step rollout loop to this
+    # runner instead of driving policy/env/tools itself. Used by the
+    # verifiers backend, where verifiers' env.rollout() owns the loop and
+    # produces both trajectory and rubric-scored reward in one shot.
+    external_rollout_runner: VerifiersRolloutRunner | None = None
     _semaphore: asyncio.Semaphore = field(init=False)
     _cancelled: set[str] = field(init=False, default_factory=set)
 
@@ -175,13 +186,19 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 horizon=request.horizon,
                 success_criteria=request.success_criteria or ["manual review"],
             )
-            self.environment_runner.create_task(task)
-            if hasattr(self.policy_server, "begin_task"):
-                self.policy_server.begin_task(task)
+            external = self.external_rollout_runner
+            if external is None:
+                self.environment_runner.create_task(task)
+                if hasattr(self.policy_server, "begin_task"):
+                    self.policy_server.begin_task(task)
 
+            model_id = (
+                external.policy_name() if external is not None
+                else self.policy_server.policy_name()
+            )
             manifest = RunManifest(
                 id=run_id,
-                model_id=self.policy_server.policy_name(),
+                model_id=model_id,
                 adapter_id=request.adapter_id,
                 dataset_slice="bootstrap",
                 infra_target=request.infra_target,
@@ -198,6 +215,10 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
 
             try:
+                if external is not None:
+                    return await self._execute_external(
+                        external, task, request, run_id, manifest,
+                    )
                 steps, trajectory = await self._run_steps(task, request, run_id)
                 cancelled = "cancelled" in trajectory.errors
                 reward = self.reward_pipeline.score_trajectory(task, trajectory)
@@ -278,6 +299,129 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 await self.event_bus.publish(RolloutFailed(run_id=run_id, error=str(exc)))
                 self._cancelled.discard(run_id)
                 return failed_detail
+
+    async def _execute_external(
+        self,
+        external: VerifiersRolloutRunner,
+        task: TaskSpec,
+        request: RolloutRequest,
+        run_id: str,
+        manifest: RunManifest,
+    ) -> RunDetail:
+        """Run a rollout where an external framework (verifiers) owns the
+        per-step loop. Skips CompositeRewardPipeline because verifiers' rubric
+        already produced the reward; persists everything via the same store
+        and emits the same lifecycle events as the in-house path."""
+        if run_id in self._cancelled:
+            self._cancelled.discard(run_id)
+            cancelled_traj = TrajectoryRecord(
+                id=f"traj-{uuid4().hex[:8]}",
+                task_id=task.id,
+                steps=[],
+                errors=["cancelled"],
+            )
+            cancelled_reward = self.reward_pipeline.score_trajectory(task, cancelled_traj)
+            cancelled_detail = RunDetail(
+                manifest=manifest.model_copy(
+                    update={"status": RunStatus.failed, "updated_at": datetime.now(UTC)},
+                ),
+                task=task,
+                trajectory=cancelled_traj,
+                reward=cancelled_reward,
+                artifacts=_default_artifacts(run_id),
+            )
+            self.artifact_store.save_run(cancelled_detail)
+            await self.event_bus.publish(RolloutCancelled(run_id=run_id))
+            await self._publish_worker(
+                "worker-rollout-local", "rollout", WorkerStatus.failed, run_id,
+                "Rollout cancelled before verifiers rollout started.",
+            )
+            return cancelled_detail
+
+        outcome = await external.run(task, run_id)
+        for step in outcome.steps:
+            await self.event_bus.publish(StepRecorded(run_id=run_id, step=step))
+        await self.event_bus.publish(
+            ProgressTicked(
+                run_id=run_id,
+                step_index=max(0, len(outcome.steps) - 1),
+                tool="verifiers",
+                tokens=outcome.total_tokens,
+                cost_usd=outcome.cost_usd,
+            )
+        )
+
+        token_overflow = outcome.total_tokens > self.max_tokens_per_run
+        trajectory = outcome.trajectory
+        if token_overflow:
+            trajectory = trajectory.model_copy(
+                update={
+                    "errors": [
+                        *trajectory.errors,
+                        (
+                            f"token budget exceeded: {outcome.total_tokens} > "
+                            f"{self.max_tokens_per_run}"
+                        ),
+                    ],
+                },
+            )
+        await self.event_bus.publish(
+            RewardComputed(
+                run_id=run_id,
+                terminal_reward=outcome.reward.terminal_reward,
+                provenance=outcome.reward.provenance,
+                audit_flags=outcome.reward.audit_flags,
+            )
+        )
+        final_status = RunStatus.failed if token_overflow else RunStatus.completed
+        manifest = manifest.model_copy(
+            update={
+                "status": final_status,
+                "updated_at": datetime.now(UTC),
+                "estimated_cost_usd": (
+                    outcome.cost_usd if outcome.cost_usd > 0 else manifest.estimated_cost_usd
+                ),
+            },
+        )
+        detail = RunDetail(
+            manifest=manifest,
+            task=task,
+            trajectory=trajectory,
+            reward=outcome.reward,
+            artifacts=_default_artifacts(run_id),
+        )
+        self.artifact_store.save_run(detail)
+        worker_status = WorkerStatus.failed if token_overflow else WorkerStatus.idle
+        worker_detail = (
+            f"verifiers rollout exceeded token budget ({outcome.total_tokens})."
+            if token_overflow
+            else "verifiers rollout finished; worker idle."
+        )
+        await self._publish_worker(
+            "worker-rollout-local", "rollout", worker_status, run_id, worker_detail,
+        )
+        if not token_overflow:
+            await self._publish_worker(
+                "worker-reward-local", "reward", WorkerStatus.idle, run_id,
+                "Reward pipeline is available for replay.",
+            )
+            await self.event_bus.publish(RolloutCompleted(run_id=run_id, detail=detail))
+        else:
+            await self.event_bus.publish(
+                RolloutFailed(
+                    run_id=run_id,
+                    error=f"token budget exceeded: {outcome.total_tokens}",
+                )
+            )
+        self._cancelled.discard(run_id)
+        log.info(
+            "rollout.completed.verifiers",
+            terminal_reward=outcome.reward.terminal_reward,
+            steps=len(outcome.steps),
+            tokens=outcome.total_tokens,
+            cost_usd=outcome.cost_usd,
+        )
+        return detail
 
     async def _run_steps(
         self, task: TaskSpec, request: RolloutRequest, run_id: str,

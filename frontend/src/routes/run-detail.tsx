@@ -5,6 +5,7 @@ import type { RunDetail, TrajectoryStep } from "../lib/types";
 
 interface RewardProvenance {
   rubric?: string;
+  source?: string;
   signals?: { name: string; value: number; weight: number; reason: string }[];
 }
 
@@ -125,7 +126,14 @@ export function RunDetailPage() {
           <h2>Reward</h2>
           <span>{run.reward.terminal_reward.toFixed(3)}</span>
         </div>
-        {provenance?.rubric ? <p>Rubric: {provenance.rubric}</p> : null}
+        {provenance?.rubric ? (
+          <p>
+            Rubric: {provenance.rubric}
+            {provenance.source === "verifiers-rubric" ? (
+              <span className="badge"> verifiers</span>
+            ) : null}
+          </p>
+        ) : null}
         <p>Audit flags: {run.reward.audit_flags.join(", ") || "none"}</p>
         {rubrics.length > 0 ? (
           <div className="rescore">
