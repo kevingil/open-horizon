@@ -1,8 +1,21 @@
 """Unit tests for VerifiersRolloutRunner with a fake verifiers env.
 
 The real verifiers package isn't a hard dep, so we monkeypatch
-`verifiers.load_environment` with a stand-in object that mirrors the
-shape we expect from `env.rollout(...)` (messages + reward + usage).
+`verifiers.load_environment` with a stand-in env that mimics the public
+contract documented in verifiers >= 0.1.11:
+
+    async Environment.run_rollout(input, client, model, sampling_args, ...)
+        -> RolloutOutput  # has .state: State
+
+State is a dict subclass with keys:
+    completion: list[Message] | None
+    trajectory: list[TrajectoryStep]
+    reward:     float | None        (set by Rubric.score_rollout)
+    metrics:    dict[str, float]    (per-signal scores)
+    usage:      TokenUsage TypedDict {input_tokens, output_tokens, ...}
+    error:      Error | None
+
+Source of truth: verifiers/types.py and verifiers/envs/environment.py.
 """
 from __future__ import annotations
 
@@ -18,24 +31,21 @@ from rl_stack.infrastructure.environment.verifiers_runner import (
 )
 
 
-class _FakeRollout:
-    def __init__(self, *, messages, reward, signals, usage):
-        self.messages = messages
-        self.reward = reward
-        self.rubric_breakdown = signals
-        self.usage = usage
+class _FakeRolloutOutput:
+    def __init__(self, state: dict):
+        self.state = state
 
 
 class _FakeEnv:
-    def __init__(self, result):
-        self._result = result
+    def __init__(self, state: dict):
+        self._state = state
         self.calls: list[dict] = []
 
-    def rollout(self, *, client, model, prompt, sampling_args):
+    async def run_rollout(self, *, input, client, model, sampling_args):
         self.calls.append(
-            {"client": client, "model": model, "prompt": prompt, "sampling_args": sampling_args},
+            {"input": input, "client": client, "model": model, "sampling_args": sampling_args},
         )
-        return self._result
+        return _FakeRolloutOutput(self._state)
 
 
 def _install_fake_verifiers(monkeypatch, env):
@@ -56,9 +66,9 @@ def _make_task() -> TaskSpec:
 
 
 @pytest.mark.asyncio
-async def test_run_translates_messages_into_trajectory(monkeypatch):
-    result = _FakeRollout(
-        messages=[
+async def test_run_translates_state_into_trajectory(monkeypatch):
+    state = {
+        "completion": [
             {"role": "system", "content": "primer"},
             {"role": "user", "content": "what is 2+2?"},
             {
@@ -77,14 +87,12 @@ async def test_run_translates_messages_into_trajectory(monkeypatch):
             {"role": "tool", "content": "4"},
             {"role": "assistant", "content": "the answer is 4"},
         ],
-        reward=0.85,
-        signals={
-            "format": {"value": 1.0, "weight": 0.5, "reason": "tool used"},
-            "correctness": 0.7,
-        },
-        usage={"prompt_tokens": 50, "completion_tokens": 25},
-    )
-    env = _FakeEnv(result)
+        "reward": 0.85,
+        "metrics": {"format": 1.0, "correctness": 0.7},
+        "usage": {"input_tokens": 50.0, "output_tokens": 25.0},
+        "error": None,
+    }
+    env = _FakeEnv(state)
     _install_fake_verifiers(monkeypatch, env)
 
     runner = VerifiersRolloutRunner(
@@ -109,14 +117,50 @@ async def test_run_translates_messages_into_trajectory(monkeypatch):
     assert prov["source"] == "verifiers-rubric"
     names = sorted(s["name"] for s in prov["signals"])
     assert names == ["correctness", "format"]
-    # Verifiers is invoked with the bare model id (no provider prefix).
-    assert env.calls[0]["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    # run_rollout is called with the bare model id (no provider prefix)
+    # and a RolloutInput dict (not a free-floating prompt kwarg).
+    call = env.calls[0]
+    assert call["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert call["input"]["prompt"] == [{"role": "user", "content": "solve me"}]
+
+
+@pytest.mark.asyncio
+async def test_run_falls_back_to_trajectory_when_completion_empty(monkeypatch):
+    state = {
+        "completion": None,
+        "trajectory": [
+            {"role": "user", "content": "hi"},
+            {"role": "assistant", "content": "hello"},
+        ],
+        "reward": 0.5,
+        "metrics": {"good": 0.5},
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }
+    _install_fake_verifiers(monkeypatch, _FakeEnv(state))
+    runner = VerifiersRolloutRunner(client=object(), model="sglang:foo", env_id="vf-math")
+    outcome = await runner.run(_make_task(), run_id="run-2")
+    assert [s.actor for s in outcome.steps] == ["user", "policy"]
+
+
+@pytest.mark.asyncio
+async def test_run_records_state_error(monkeypatch):
+    state = {
+        "completion": [{"role": "user", "content": "x"}],
+        "reward": 0.0,
+        "metrics": {},
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+        "error": {"message": "tool call failed"},
+    }
+    _install_fake_verifiers(monkeypatch, _FakeEnv(state))
+    runner = VerifiersRolloutRunner(client=object(), model="sglang:foo", env_id="vf-math")
+    outcome = await runner.run(_make_task(), run_id="run-3")
+    assert outcome.trajectory.errors == ["tool call failed"]
 
 
 @pytest.mark.asyncio
 async def test_policy_name_includes_env_and_model(monkeypatch):
     env = _FakeEnv(
-        _FakeRollout(messages=[], reward=0.0, signals={}, usage={"prompt_tokens": 0, "completion_tokens": 0}),
+        {"completion": [], "reward": 0.0, "metrics": {}, "usage": {"input_tokens": 0, "output_tokens": 0}},
     )
     _install_fake_verifiers(monkeypatch, env)
     runner = VerifiersRolloutRunner(client=object(), model="vllm:foo", env_id="rlm")
@@ -128,10 +172,9 @@ async def test_rollout_timeout_is_enforced(monkeypatch):
     import asyncio
 
     class _SlowEnv:
-        def rollout(self, *, client, model, prompt, sampling_args):
-            import time
-            time.sleep(2)
-            return _FakeRollout(messages=[], reward=0.0, signals={}, usage={})
+        async def run_rollout(self, *, input, client, model, sampling_args):
+            await asyncio.sleep(2)
+            return _FakeRolloutOutput({})
 
     _install_fake_verifiers(monkeypatch, _SlowEnv())
     runner = VerifiersRolloutRunner(
@@ -140,5 +183,3 @@ async def test_rollout_timeout_is_enforced(monkeypatch):
     )
     with pytest.raises(RuntimeError, match="exceeded"):
         await runner.run(_make_task(), run_id="run-1")
-    # Force back to the main loop so background thread finishes cleanly.
-    await asyncio.sleep(0)

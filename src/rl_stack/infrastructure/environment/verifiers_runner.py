@@ -1,17 +1,20 @@
 """Rollout delegator for the `verifiers` framework.
 
-`verifiers` owns its own rollout loop (`env.rollout(client, model, prompt, ...)`),
-which conflicts with our per-step `EnvironmentRunner` ABC. Wrapping it
-behind a step-by-step shim would lose the rubric grader, RLMEnv, and
-OpenEnv glue we actually want.
-
-Instead this module exposes a `VerifiersRolloutRunner` that the
-coordinator delegates to when `env_backend=verifiers`. It returns a fully
-populated `TrajectoryRecord` and `RewardRecord` in one shot, plus token
-usage so the existing budget/cost machinery stays accurate.
+`verifiers` owns its own rollout loop. Its public async entry point is
+`Environment.run_rollout(input, client, model, sampling_args, ...)`,
+which calls the abstract `rollout()` and then scores the rubric (when
+`score_rollouts=True`). Returns a `RolloutOutput` carrying the populated
+`State` (a dict subclass with `trajectory`, `completion`, `reward`,
+`metrics`, `usage`, `error`, ...). We delegate to it directly rather
+than driving step-by-step through our `EnvironmentRunner` ABC, since
+that would forfeit the rubric grader, RLMEnv, and OpenEnv glue.
 
 The verifiers package is an optional dependency; the import is lazy so
 users on the default backend never need it installed.
+
+References (verifiers >= 0.1.11):
+  verifiers/envs/environment.py:Environment.run_rollout
+  verifiers/types.py:State, TokenUsage, RolloutInput
 """
 from __future__ import annotations
 
@@ -98,13 +101,20 @@ class VerifiersRolloutRunner:
         # full id on our side so self-hosted stays $0.
         served_model = self.model.split(":", 1)[1] if ":" in self.model else self.model
 
+        rollout_input = {
+            "prompt": [{"role": "user", "content": task.prompt}],
+            "task": task.id,
+        }
+        sampling_args = _sampling_args(task)
+
         async def _invoke() -> Any:
-            return await asyncio.to_thread(
-                env.rollout,
+            # run_rollout is the scored entry point; it calls the abstract
+            # rollout() and then `await self.rubric.score_rollout(state)`.
+            return await env.run_rollout(
+                input=rollout_input,
                 client=self.client,
                 model=served_model,
-                prompt=task.prompt,
-                sampling_args=_sampling_args(task),
+                sampling_args=sampling_args,
             )
 
         async with self._semaphore:
@@ -118,17 +128,19 @@ class VerifiersRolloutRunner:
                     f"verifiers rollout exceeded {self.rollout_timeout_s:.1f}s"
                 ) from exc
 
-        steps = _messages_to_steps(_extract_messages(result))
+        state = _state_of(result)
+        errors = _collect_errors(state)
+        steps = _messages_to_steps(_extract_messages(state))
         traj = TrajectoryRecord(
             id=f"traj-{uuid4().hex[:8]}",
             task_id=task.id,
             steps=steps,
-            errors=[],
+            errors=errors,
         )
-        terminal_reward, signals = _extract_reward(result)
+        terminal_reward, signals = _extract_reward(state)
         reward = _build_reward_record(traj.id, terminal_reward, signals, self.env_id)
 
-        input_tokens, output_tokens = _extract_usage(result)
+        input_tokens, output_tokens = _extract_usage(state)
         total_tokens = input_tokens + output_tokens
         cost_usd = estimate_cost_usd(
             self.model, input_tokens=input_tokens, output_tokens=output_tokens,
@@ -154,30 +166,51 @@ def _sampling_args(task: TaskSpec) -> dict[str, Any]:
     return {"max_tokens": 2048}
 
 
-def _extract_messages(result: Any) -> list[dict[str, Any]]:
-    """Tolerant access to verifiers' rollout messages.
+def _state_of(result: Any) -> Any:
+    """run_rollout returns a RolloutOutput; pull the State dict off it.
 
-    verifiers' return shape has shifted across 0.1.x: it has variously been
-    a list of message dicts, a `(messages, state)` tuple, or a typed object
-    with a `.messages` / `.completion` attribute. Probe the common shapes
-    before giving up.
+    Older 0.1.x return paths handed back the State directly. Try both, plus
+    the historical `(messages, state)` tuple shape as a last resort.
     """
-    candidate = result
-    if isinstance(candidate, tuple) and candidate:
-        candidate = candidate[0]
-    for attr in ("messages", "completion", "trajectory"):
-        attr_val = getattr(candidate, attr, None)
-        if attr_val is not None:
-            candidate = attr_val
-            break
-    if isinstance(candidate, dict):
-        for key in ("messages", "completion", "trajectory"):
-            if key in candidate and isinstance(candidate[key], list):
-                candidate = candidate[key]
-                break
-    if not isinstance(candidate, list):
+    if hasattr(result, "state"):
+        return result.state
+    if isinstance(result, tuple) and len(result) >= 2:
+        return result[1]
+    return result
+
+
+def _extract_messages(state: Any) -> list[dict[str, Any]]:
+    """Pull the conversation off a verifiers State.
+
+    Prefers `state["completion"]` (the assembled final conversation), falls
+    back to `state["trajectory"]` (per-turn structured records).
+    """
+    completion = _safe_get(state, "completion")
+    if isinstance(completion, list) and completion:
+        return [m for m in completion if isinstance(m, dict)]
+    trajectory = _safe_get(state, "trajectory")
+    if isinstance(trajectory, list):
+        flat: list[dict[str, Any]] = []
+        for step in trajectory:
+            messages = _safe_get(step, "messages")
+            if isinstance(messages, list):
+                flat.extend(m for m in messages if isinstance(m, dict))
+            elif isinstance(step, dict) and "role" in step:
+                flat.append(step)
+        return flat
+    return []
+
+
+def _collect_errors(state: Any) -> list[str]:
+    err = _safe_get(state, "error")
+    if err is None:
         return []
-    return [m for m in candidate if isinstance(m, dict)]
+    if isinstance(err, str):
+        return [err]
+    if isinstance(err, dict):
+        msg = err.get("message") or err.get("error") or json.dumps(err)
+        return [str(msg)]
+    return [str(err)]
 
 
 def _messages_to_steps(messages: list[dict[str, Any]]) -> list[TrajectoryStep]:
@@ -223,61 +256,35 @@ def _maybe_parse_args(raw: Any) -> Any:
     return raw
 
 
-def _extract_reward(result: Any) -> tuple[float, list[dict[str, Any]]]:
-    """Pull (terminal_reward, per-signal-breakdown) out of a verifiers result.
+def _extract_reward(state: Any) -> tuple[float, list[dict[str, Any]]]:
+    """Pull (terminal_reward, per-signal-breakdown) off a verifiers State.
 
-    Verifiers' `Rubric` produces a dict of per-signal scores (often
-    `{"name": float}` or `{"name": {"value": ..., "weight": ...}}`). We
-    flatten that into our existing provenance shape.
+    Per `verifiers/types.py`:
+      State["reward"]:  float | None
+      State["metrics"]: dict[str, float] | None
+
+    `metrics` is a flat name -> float map written by Rubric.score_rollout.
+    We flatten that into our `{name, value, weight, reason}` provenance
+    shape; weight defaults to 1.0 since verifiers folds weights into the
+    weighted-sum reward already.
     """
-    candidate = result
-    if isinstance(candidate, tuple) and len(candidate) >= 2:
-        candidate = candidate[1]
-    if hasattr(candidate, "state"):
-        candidate = candidate.state
+    raw_reward = _safe_get(state, "reward")
+    try:
+        reward_val = float(raw_reward) if raw_reward is not None else 0.0
+    except (TypeError, ValueError):
+        reward_val = 0.0
 
-    reward_val: float = 0.0
-    breakdown: dict[str, Any] | None = None
-
-    for attr in ("reward", "rewards", "score", "rubric_score"):
-        val = _safe_get(candidate, attr)
-        if val is None:
-            continue
-        if isinstance(val, dict):
-            breakdown = val
-            reward_val = float(val.get("total", val.get("reward", val.get("score", 0.0))))
-            break
-        try:
-            reward_val = float(val)
-            break
-        except (TypeError, ValueError):
-            continue
-
-    for attr in ("rubric_breakdown", "signals", "components"):
-        val = _safe_get(candidate, attr)
-        if isinstance(val, dict) and breakdown is None:
-            breakdown = val
-            break
-
+    metrics = _safe_get(state, "metrics")
     signals: list[dict[str, Any]] = []
-    if isinstance(breakdown, dict):
-        for name, payload in breakdown.items():
-            if isinstance(payload, dict):
-                signals.append(
-                    {
-                        "name": name,
-                        "value": float(payload.get("value", payload.get("score", 0.0))),
-                        "weight": float(payload.get("weight", 1.0)),
-                        "reason": str(payload.get("reason", "")),
-                    }
-                )
-            else:
-                try:
-                    signals.append(
-                        {"name": name, "value": float(payload), "weight": 1.0, "reason": ""}
-                    )
-                except (TypeError, ValueError):
-                    continue
+    if isinstance(metrics, dict):
+        for name, payload in metrics.items():
+            try:
+                value = float(payload)
+            except (TypeError, ValueError):
+                continue
+            signals.append(
+                {"name": str(name), "value": value, "weight": 1.0, "reason": ""},
+            )
     return reward_val, signals
 
 
@@ -311,29 +318,25 @@ def _build_reward_record(
     )
 
 
-def _extract_usage(result: Any) -> tuple[int, int]:
-    """Tolerant probe for token counts in a verifiers rollout result."""
-    candidates: list[Any] = [result]
-    if isinstance(result, tuple):
-        candidates.extend(result)
-    for c in candidates:
-        usage = _safe_get(c, "usage")
-        if usage is None:
-            usage = _safe_get(c, "token_usage")
-        if usage is None and hasattr(c, "state"):
-            usage = _safe_get(c.state, "usage")
-        if usage is None:
-            continue
-        if isinstance(usage, dict):
-            return (
-                int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-                int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
-            )
+def _extract_usage(state: Any) -> tuple[int, int]:
+    """Pull (input_tokens, output_tokens) off a verifiers State.
+
+    Per `verifiers/types.py`, State["usage"] is a TokenUsage TypedDict
+    with {input_tokens, output_tokens, final_input_tokens?,
+    final_output_tokens?}, all stored as floats.
+    """
+    usage = _safe_get(state, "usage")
+    if usage is None:
+        return (0, 0)
+    if isinstance(usage, dict):
         return (
-            int(getattr(usage, "prompt_tokens", 0) or getattr(usage, "input_tokens", 0) or 0),
-            int(getattr(usage, "completion_tokens", 0) or getattr(usage, "output_tokens", 0) or 0),
+            int(usage.get("input_tokens", 0) or 0),
+            int(usage.get("output_tokens", 0) or 0),
         )
-    return (0, 0)
+    return (
+        int(getattr(usage, "input_tokens", 0) or 0),
+        int(getattr(usage, "output_tokens", 0) or 0),
+    )
 
 
 def _safe_get(obj: Any, key: str) -> Any:
