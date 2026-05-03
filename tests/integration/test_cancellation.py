@@ -11,12 +11,12 @@ from application.coordinator import LocalRolloutCoordinator
 from application.event_bus import EventBus
 from domain.contracts import PolicyServer
 from domain.models import RolloutRequest, RunStatus, TaskSpec
-from infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
 from interface.api.app import create_app
 from settings import Settings
+from tests.conftest import _StubRepoRunner
 
 
 class SlowPolicy(PolicyServer):
@@ -36,7 +36,6 @@ class SlowPolicy(PolicyServer):
 @pytest.fixture
 def coordinator(tmp_path):
     return LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=SlowPolicy(),
         reward_pipeline=CompositeRewardPipeline(),
@@ -44,6 +43,7 @@ def coordinator(tmp_path):
         event_bus=EventBus(),
         workspace_root=tmp_path,
         max_parallel=1,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
     )
 
 

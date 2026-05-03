@@ -24,7 +24,6 @@ from domain.models import (
     TrajectoryRecord,
     TrajectoryStep,
 )
-from infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from infrastructure.environment.verifiers_runner import (
     VerifiersRolloutOutcome,
 )
@@ -83,7 +82,6 @@ def _build_outcome(task_id: str = "task-x") -> VerifiersRolloutOutcome:
 
 def _make_coordinator(tmp_path: Path, runner: _FakeVerifiersRunner) -> LocalRolloutCoordinator:
     return LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=StaticPolicyServer(),
         reward_pipeline=HeuristicRewardPipeline(),

@@ -33,7 +33,6 @@ async def test_one_verifiers_rollout_via_sglang(tmp_path: Path) -> None:
     from application.coordinator import LocalRolloutCoordinator
     from application.event_bus import EventBus
     from domain.models import RolloutRequest, RunStatus
-    from infrastructure.environment.simulated import SimulatedEnvironmentRunner
     from infrastructure.environment.verifiers_runner import (
         VerifiersRolloutRunner,
     )
@@ -51,7 +50,6 @@ async def test_one_verifiers_rollout_via_sglang(tmp_path: Path) -> None:
         rollout_timeout_s=120.0,
     )
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),

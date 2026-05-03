@@ -10,19 +10,18 @@ from application.eval import DEFAULT_EVAL_TASKS, EvalHarness, EvalTask
 from application.event_bus import EventBus
 from domain.models import AdapterRecord
 from infrastructure.adapters.local import LocalAdapterRegistry
-from infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
 from infrastructure.training.memory_store import InMemoryTrainingStore
+from tests.conftest import _StubRepoRunner
 
 
 @pytest.fixture
 def harness(tmp_path: Path):
     bus = EventBus()
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
@@ -30,6 +29,7 @@ def harness(tmp_path: Path):
         event_bus=bus,
         workspace_root=tmp_path,
         max_parallel=1,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
     )
     registry = LocalAdapterRegistry(root=tmp_path / "adapters")
     registry.register(

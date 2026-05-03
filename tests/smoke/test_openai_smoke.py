@@ -46,9 +46,6 @@ async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
     (source / "README.md").write_text("project: rl-smoke\nstatus: alive\n")
 
     coord = LocalRolloutCoordinator(
-        environment_runner=RepoEnvironmentRunner(
-            source_root=source, scratch_root=tmp_path / "scratch",
-        ),
         tool_harness=LocalToolHarness(root=source),
         policy_server=OpenAICompatPolicyServer(
             client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
@@ -61,6 +58,9 @@ async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
         workspace_root=source,
         max_parallel=1,
         max_tokens_per_run=5_000,
+        repo_runner=RepoEnvironmentRunner(
+            source_root=source, scratch_root=tmp_path / "scratch",
+        ),
     )
     detail = await coord.start_rollout(
         RolloutRequest(

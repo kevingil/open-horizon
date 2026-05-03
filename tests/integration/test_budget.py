@@ -20,7 +20,7 @@ from domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from tests.conftest import _StubRepoRunner
 from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
@@ -63,7 +63,6 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
     store.save_run(_seed_detail(0.35, now - timedelta(hours=1)))
 
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
@@ -73,6 +72,7 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
         max_parallel=1,
         daily_budget_usd=0.5,
         budget_window_hours=24,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
     )
 
     captured: list = []
@@ -102,7 +102,6 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
 async def test_coordinator_allows_rollout_when_under_cap(tmp_path: Path) -> None:
     store = InMemoryArtifactStore()
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
         policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
@@ -110,8 +109,9 @@ async def test_coordinator_allows_rollout_when_under_cap(tmp_path: Path) -> None
         event_bus=EventBus(),
         workspace_root=tmp_path,
         max_parallel=1,
-        daily_budget_usd=10.0,  # well above anything the simulated env produces
+        daily_budget_usd=10.0,  # well above anything the stub repo runner produces
         budget_window_hours=24,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
     )
     detail = await coord.start_rollout(
         RolloutRequest(prompt="fine", horizon=2), run_id="run-fine",
