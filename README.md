@@ -52,13 +52,12 @@ rl-eval --adapter adapter-y
 rl-replay --list
 ```
 
-## Direction
+## Development Options
 
-Three design priorities:
-
-1. Mac-runnable local debug path.
-2. Cheap single-GPU path that preserves the same interfaces.
-3. Ray-compatible scale-out path without redesigning core abstractions.
+1. Local development on macOS: ready.
+2. Local development on a single GPU: in progress.
+3. Local or cloud GPU serving with vLLM or SGLang: in progress.
+4. Distributed runs with Ray-compatible scale-out: coming soon.
 
 ## Layout
 
