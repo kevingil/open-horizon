@@ -1,18 +1,60 @@
-# Long-Horizon Distributed RL
+# Distributed RL for Long-Horizon LLM Agents
 
-<p>
-  <a href="https://github.com/sgl-project/sglang">
-    <img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="48">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/PrimeIntellect-ai/verifiers">
-    <img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="48">
-  </a>
-</p>
+Training, evaluations, and observability for long-horizon LLM
+agents.
 
-Docs-first starter repo for one-person, many-agent long-horizon distributed reinforcement learning.
+## Quick Start
 
-Three priorities:
+Backend:
+
+```bash
+uv sync --extra dev
+source .venv/bin/activate
+cp .env.example .env
+make dev
+```
+
+The default config uses the static policy and simulated environment, so you can
+start without an API key. For OpenAI or another OpenAI-compatible provider,
+edit `.env` and set `RL_POLICY_BACKEND=openai`, `RL_LLM_API_KEY`,
+`RL_LLM_BASE_URL`, and `RL_LLM_MODEL`.
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open:
+
+- API: `http://127.0.0.1:8000`
+- Dashboard: `http://127.0.0.1:5173`
+
+## Development Loop
+
+This repo is in active development. The fastest useful checks are:
+
+```bash
+make lint
+python -m compileall -q src tests
+```
+
+Useful commands:
+
+```bash
+make dev      # FastAPI with reload
+make lint     # ruff
+make fmt      # ruff fix + format
+rl-train --list
+rl-eval --adapter adapter-y
+rl-replay --list
+```
+
+## Direction
+
+Three design priorities:
 
 1. Mac-runnable local debug path.
 2. Cheap single-GPU path that preserves the same interfaces.
@@ -196,33 +238,6 @@ rl-replay --list                                   # registered rubrics
 rl-replay --run run-abc123 --rubric strict-finish-v1
 ```
 
-## Local Startup
-
-Backend:
-
-```bash
-pip install -e '.[dev]'
-cp .env.example .env     # fill RL_LLM_API_KEY when using openai backend
-make dev
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Development
-
-```bash
-make test     # pytest
-make lint     # ruff
-make check    # lint + test
-make dev      # uvicorn --reload
-```
-
 ### Smoke test (optional, real API)
 
 ```bash
@@ -252,3 +267,10 @@ Highlights:
   a trajectory error when exceeded.
 - `RL_DAILY_BUDGET_USD` rolling-window USD cap; new rollouts are refused
   with a `BudgetExceeded` event when reached.
+
+## Credits
+
+This project builds around a few excellent open-source systems:
+
+- <a href="https://github.com/sgl-project/sglang"><img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="32"></a> SGLang for efficient OpenAI-compatible policy serving.
+- <a href="https://github.com/PrimeIntellect-ai/verifiers"><img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="32"></a> Prime Intellect verifiers for environment-driven rollout and reward loops.
