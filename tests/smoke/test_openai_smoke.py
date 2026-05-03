@@ -31,14 +31,14 @@ pytestmark = pytest.mark.skipif(not SMOKE_KEY, reason="RL_SMOKE_API_KEY not set"
 async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
     from openai import OpenAI
 
-    from rl_stack.application.coordinator import LocalRolloutCoordinator
-    from rl_stack.application.event_bus import EventBus
-    from rl_stack.domain.models import RolloutRequest, RunStatus
-    from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
-    from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
-    from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-    from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
-    from rl_stack.infrastructure.tools.local import LocalToolHarness
+    from application.coordinator import LocalRolloutCoordinator
+    from application.event_bus import EventBus
+    from domain.models import RolloutRequest, RunStatus
+    from infrastructure.environment.repo_runner import RepoEnvironmentRunner
+    from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
+    from infrastructure.rewards.composite import CompositeRewardPipeline
+    from infrastructure.store.sqlite import SqliteArtifactStore
+    from infrastructure.tools.local import LocalToolHarness
 
     source = tmp_path / "repo"
     source.mkdir()

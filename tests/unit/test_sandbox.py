@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rl_stack.infrastructure.environment.sandbox import (
+from infrastructure.environment.sandbox import (
     DockerSandbox,
     NullSandbox,
     build_sandbox,
@@ -24,7 +24,7 @@ def test_null_sandbox_reports_timeouts(tmp_path: Path) -> None:
 
 
 def test_docker_sandbox_unavailable_without_daemon(monkeypatch) -> None:
-    import rl_stack.infrastructure.environment.sandbox as mod
+    import infrastructure.environment.sandbox as mod
 
     monkeypatch.setattr(mod.shutil, "which", lambda _: None)
     sb = DockerSandbox()
@@ -32,7 +32,7 @@ def test_docker_sandbox_unavailable_without_daemon(monkeypatch) -> None:
 
 
 def test_build_sandbox_falls_back_when_docker_missing(monkeypatch) -> None:
-    import rl_stack.infrastructure.environment.sandbox as mod
+    import infrastructure.environment.sandbox as mod
 
     monkeypatch.setattr(mod.shutil, "which", lambda _: None)
     sb = build_sandbox("docker")

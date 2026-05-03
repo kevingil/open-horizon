@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from rl_stack.application.rescore import rescore_run
-from rl_stack.domain.models import (
+from application.rescore import rescore_run
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RunDetail,
@@ -16,8 +16,8 @@ from rl_stack.domain.models import (
     TrajectoryRecord,
     TrajectoryStep,
 )
-from rl_stack.domain.rewards import HEURISTIC_V1, RUBRICS, STRICT_FINISH_V1, get_rubric
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
+from domain.rewards import HEURISTIC_V1, RUBRICS, STRICT_FINISH_V1, get_rubric
+from infrastructure.store.memory import InMemoryArtifactStore
 
 
 def _detail(run_id: str, steps: list[TrajectoryStep] | None = None) -> RunDetail:

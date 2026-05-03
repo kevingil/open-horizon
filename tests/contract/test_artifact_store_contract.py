@@ -5,8 +5,8 @@ from collections.abc import Callable
 
 import pytest
 
-from rl_stack.domain.contracts import ArtifactStore
-from rl_stack.domain.models import (
+from domain.contracts import ArtifactStore
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RunDetail,
@@ -16,8 +16,8 @@ from rl_stack.domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.store.sqlite import SqliteArtifactStore
 
 
 def _detail(run_id: str = "run-1") -> RunDetail:

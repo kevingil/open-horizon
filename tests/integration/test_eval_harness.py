@@ -5,17 +5,17 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.eval import DEFAULT_EVAL_TASKS, EvalHarness, EvalTask
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.policy.static import StaticPolicyServer
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
-from rl_stack.infrastructure.training.memory_store import InMemoryTrainingStore
+from application.coordinator import LocalRolloutCoordinator
+from application.eval import DEFAULT_EVAL_TASKS, EvalHarness, EvalTask
+from application.event_bus import EventBus
+from domain.models import AdapterRecord
+from infrastructure.adapters.local import LocalAdapterRegistry
+from infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from infrastructure.policy.static import StaticPolicyServer
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
+from infrastructure.training.memory_store import InMemoryTrainingStore
 
 
 @pytest.fixture

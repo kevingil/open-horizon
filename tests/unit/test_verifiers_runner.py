@@ -25,8 +25,8 @@ import types
 
 import pytest
 
-from rl_stack.domain.models import TaskSpec, ToolPermission
-from rl_stack.infrastructure.environment.verifiers_runner import (
+from domain.models import TaskSpec, ToolPermission
+from infrastructure.environment.verifiers_runner import (
     VerifiersRolloutRunner,
 )
 

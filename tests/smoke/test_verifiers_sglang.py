@@ -30,17 +30,17 @@ async def test_one_verifiers_rollout_via_sglang(tmp_path: Path) -> None:
     pytest.importorskip("verifiers")
     from openai import OpenAI
 
-    from rl_stack.application.coordinator import LocalRolloutCoordinator
-    from rl_stack.application.event_bus import EventBus
-    from rl_stack.domain.models import RolloutRequest, RunStatus
-    from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-    from rl_stack.infrastructure.environment.verifiers_runner import (
+    from application.coordinator import LocalRolloutCoordinator
+    from application.event_bus import EventBus
+    from domain.models import RolloutRequest, RunStatus
+    from infrastructure.environment.simulated import SimulatedEnvironmentRunner
+    from infrastructure.environment.verifiers_runner import (
         VerifiersRolloutRunner,
     )
-    from rl_stack.infrastructure.policy.static import StaticPolicyServer
-    from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-    from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-    from rl_stack.infrastructure.tools.local import LocalToolHarness
+    from infrastructure.policy.static import StaticPolicyServer
+    from infrastructure.rewards.composite import CompositeRewardPipeline
+    from infrastructure.store.memory import InMemoryArtifactStore
+    from infrastructure.tools.local import LocalToolHarness
 
     client = OpenAI(api_key="not-needed", base_url=BASE_URL)
     runner = VerifiersRolloutRunner(

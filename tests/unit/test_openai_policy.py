@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from rl_stack.domain.models import TaskSpec, ToolPermission
-from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
+from domain.models import TaskSpec, ToolPermission
+from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
 from tests._fakes.openai_compat import FakeOpenAI, text, tool_use
 
 

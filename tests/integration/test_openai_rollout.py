@@ -5,14 +5,14 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.models import RolloutRequest, RunStatus
-from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
-from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.models import RolloutRequest, RunStatus
+from infrastructure.environment.repo_runner import RepoEnvironmentRunner
+from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
 from tests._fakes.openai_compat import FakeOpenAI, tool_use
 
 

@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.domain.events import DomainEvent
-from rl_stack.domain.models import RolloutRequest, RunStatus
+from application.coordinator import LocalRolloutCoordinator
+from domain.events import DomainEvent
+from domain.models import RolloutRequest, RunStatus
 
 
 async def _collect_until_completed(bus) -> tuple[list[DomainEvent], asyncio.Task]:

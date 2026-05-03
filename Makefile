@@ -13,4 +13,4 @@ fmt:
 check: lint test
 
 dev:
-	uvicorn rl_stack.interface.api.app:app --reload --host 127.0.0.1 --port 8000
+	uvicorn interface.api.app:app --reload --host 127.0.0.1 --port 8000

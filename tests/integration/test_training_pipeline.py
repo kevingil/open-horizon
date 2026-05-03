@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.event_bus import EventBus
-from rl_stack.application.training import TrainingRequest, TrainingService
-from rl_stack.domain.events import DomainEvent
-from rl_stack.domain.models import (
+from application.event_bus import EventBus
+from application.training import TrainingRequest, TrainingService
+from domain.events import DomainEvent
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RunDetail,
@@ -19,10 +19,10 @@ from rl_stack.domain.models import (
     TrainingStatus,
     TrajectoryRecord,
 )
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.training.memory_store import InMemoryTrainingStore
-from rl_stack.infrastructure.training.stub import StubTrainer
+from infrastructure.adapters.local import LocalAdapterRegistry
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.training.memory_store import InMemoryTrainingStore
+from infrastructure.training.stub import StubTrainer
 
 
 def _run_detail(run_id: str, reward: float = 0.5) -> RunDetail:

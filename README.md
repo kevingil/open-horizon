@@ -1,4 +1,4 @@
-# RL Stack
+# Long-Horizon Distributed RL
 
 <p>
   <a href="https://github.com/sgl-project/sglang">
@@ -10,7 +10,7 @@
   </a>
 </p>
 
-Docs-first starter repo for a one-person, many-agent agentic reinforcement learning stack.
+Docs-first starter repo for one-person, many-agent long-horizon distributed reinforcement learning.
 
 Three priorities:
 
@@ -21,13 +21,13 @@ Three priorities:
 ## Layout
 
 ```
-src/rl_stack/
+src/
 ├── domain/           # Pure models, contracts, events, pure reward signals
 ├── application/      # Async coordinator + event bus
 ├── infrastructure/   # Policy / env / rewards / store / tools adapters
 ├── interface/api/    # FastAPI + WebSocket
 ├── settings.py       # pydantic-settings, env-driven
-├── logging.py        # structlog with contextvars + event-bus bridge
+├── runtime_logging.py # structlog with contextvars + event-bus bridge
 └── bootstrap.py      # Wiring
 frontend/             # React + TanStack Router, live via /ws/events
 plans/                # Master plan, track plans, agent-agnostic packets

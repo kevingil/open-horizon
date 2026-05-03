@@ -4,14 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.events import DomainEvent
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.policy.static import StaticPolicyServer
-from rl_stack.infrastructure.rewards.heuristic import HeuristicRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.events import DomainEvent
+from infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from infrastructure.policy.static import StaticPolicyServer
+from infrastructure.rewards.heuristic import HeuristicRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
 
 
 @pytest.fixture

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch SGLang as the policy server for the RL stack.
+# Launch SGLang as the policy server for long-horizon distributed RL.
 #
 # Usage:
 #   scripts/serve_sglang.sh [extra sglang args...]

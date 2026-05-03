@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 
-from rl_stack.domain.events import (
+from domain.events import (
     AdapterPublished,
     EvalCompleted,
     TrainingCompleted,
     TrainingMetric,
     TrainingStarted,
 )
-from rl_stack.domain.models import (
+from domain.models import (
     AdapterRecord,
     EvalReport,
     EvalTaskScore,

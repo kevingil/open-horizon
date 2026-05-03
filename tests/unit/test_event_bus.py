@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.events import LogLine
+from application.event_bus import EventBus
+from domain.events import LogLine
 
 
 @pytest.mark.asyncio

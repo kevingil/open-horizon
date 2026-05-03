@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from rl_stack.domain.models import TaskSpec, ToolPermission, TrajectoryRecord, TrajectoryStep
-from rl_stack.domain.rewards import (
+from domain.models import TaskSpec, ToolPermission, TrajectoryRecord, TrajectoryStep
+from domain.rewards import (
     CODING_V1,
     HEURISTIC_V1,
     error_penalty_signal,
@@ -13,8 +13,8 @@ from rl_stack.domain.rewards import (
     success_criteria_signal,
     tests_pass_signal,
 )
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.rewards.heuristic import HeuristicRewardPipeline
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.rewards.heuristic import HeuristicRewardPipeline
 
 
 def _task(horizon: int = 4, criteria: list[str] | None = None) -> TaskSpec:

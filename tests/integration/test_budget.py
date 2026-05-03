@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.models import (
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RolloutRequest,
@@ -20,13 +20,13 @@ from rl_stack.domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.policy.static import StaticPolicyServer
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from infrastructure.environment.simulated import SimulatedEnvironmentRunner
+from infrastructure.policy.static import StaticPolicyServer
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
+from interface.api.app import create_app
+from settings import Settings
 
 
 def _seed_detail(cost: float, at: datetime) -> RunDetail:

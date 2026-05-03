@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rl_stack.domain.pricing import estimate_cost_usd
+from domain.pricing import estimate_cost_usd
 
 
 def test_haiku_cost_matches_published_rate() -> None:

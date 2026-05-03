@@ -2590,7 +2590,7 @@ wheels = [
 ]
 
 [[package]]
-name = "rl-stack"
+name = "long-horizon-distributed-rl"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

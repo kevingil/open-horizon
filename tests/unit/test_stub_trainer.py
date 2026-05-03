@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from rl_stack.domain.models import (
+from domain.models import (
     AdapterRecord,
     ArtifactRecord,
     RewardRecord,
@@ -16,8 +16,8 @@ from rl_stack.domain.models import (
     TrainingRunRecord,
     TrajectoryRecord,
 )
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
-from rl_stack.infrastructure.training.stub import StubTrainer
+from infrastructure.adapters.local import LocalAdapterRegistry
+from infrastructure.training.stub import StubTrainer
 
 
 def _detail(reward: float) -> RunDetail:

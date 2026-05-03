@@ -5,9 +5,9 @@ import asyncio
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from domain.models import AdapterRecord
+from interface.api.app import create_app
+from settings import Settings
 
 
 @pytest.fixture

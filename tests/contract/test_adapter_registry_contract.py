@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.domain.contracts import AdapterRegistry
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
+from domain.contracts import AdapterRegistry
+from domain.models import AdapterRecord
+from infrastructure.adapters.local import LocalAdapterRegistry
 
 
 def _record(adapter_id: str, *, parent: str | None = None, created_at: datetime | None = None) -> AdapterRecord:

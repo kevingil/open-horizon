@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from interface.api.app import create_app
+from settings import Settings
 
 
 @pytest.fixture
@@ -68,7 +68,7 @@ async def test_rescore_unknown_run_returns_404(app) -> None:
 
 
 def test_replay_cli_list(capsys) -> None:
-    from rl_stack.interface.cli.replay import main
+    from interface.cli.replay import main
 
     code = main(["--list"])
     out = capsys.readouterr().out
