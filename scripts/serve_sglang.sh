@@ -5,7 +5,7 @@
 #   scripts/serve_sglang.sh [extra sglang args...]
 #
 # Environment overrides:
-#   SGLANG_MODEL          model path or HF id (default: Qwen/Qwen2.5-7B-Instruct)
+#   SGLANG_MODEL          model path or HF id (default: Qwen/Qwen3-8B)
 #   SGLANG_PORT           HTTP port (default: 30000)
 #   SGLANG_HOST           bind host (default: 127.0.0.1)
 #   SGLANG_MAX_LORAS      --max-loras-per-batch (default: 4)
@@ -16,11 +16,11 @@
 #   RL_POLICY_BACKEND=openai \
 #   RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
 #   RL_LLM_API_KEY=not-needed \
-#   RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct \
+#   RL_LLM_MODEL=sglang:Qwen/Qwen3-8B \
 #       make dev
 set -euo pipefail
 
-MODEL="${SGLANG_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
+MODEL="${SGLANG_MODEL:-Qwen/Qwen3-8B}"
 PORT="${SGLANG_PORT:-30000}"
 HOST="${SGLANG_HOST:-127.0.0.1}"
 MAX_LORAS="${SGLANG_MAX_LORAS:-4}"

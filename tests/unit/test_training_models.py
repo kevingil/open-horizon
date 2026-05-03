@@ -20,7 +20,7 @@ from domain.models import (
 
 
 def _adapter(id: str = "adapter-x") -> AdapterRecord:
-    return AdapterRecord(id=id, base_model="vllm:Qwen/Qwen2.5-0.5B", path="/tmp/x")
+    return AdapterRecord(id=id, base_model="vllm:Qwen/Qwen3-0.6B", path="/tmp/x")
 
 
 def test_training_run_record_default_status_is_pending() -> None:

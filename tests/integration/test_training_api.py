@@ -75,11 +75,11 @@ async def test_create_training_run_completes_and_publishes_adapter(app) -> None:
 async def test_get_adapter_returns_lineage_and_eval_reports(app) -> None:
     services = app.state.services
     services.adapter_registry.register(
-        AdapterRecord(id="root", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)")
+        AdapterRecord(id="root", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)")
     )
     services.adapter_registry.register(
         AdapterRecord(
-            id="child", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)", parent_id="root",
+            id="child", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)", parent_id="root",
         )
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -95,7 +95,7 @@ async def test_get_adapter_returns_lineage_and_eval_reports(app) -> None:
 async def test_eval_endpoint_runs_harness_and_persists_report(app) -> None:
     services = app.state.services
     services.adapter_registry.register(
-        AdapterRecord(id="adapter-eval", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)")
+        AdapterRecord(id="adapter-eval", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)")
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(

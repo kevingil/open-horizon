@@ -58,7 +58,7 @@ class _TaskContext:
 @dataclass
 class OpenAICompatPolicyServer(PolicyServer):
     client: OpenAILike
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5.4-mini"
     max_output_tokens: int = 2048
     max_retries: int = 3
     system_prompt: str = (

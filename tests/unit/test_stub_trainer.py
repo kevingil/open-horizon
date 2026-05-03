@@ -64,7 +64,7 @@ def test_stub_trainer_copies_parent_weights(tmp_path: Path) -> None:
     parent = registry.register(
         AdapterRecord(
             id="adapter-parent",
-            base_model="vllm:Qwen/Qwen2.5-0.5B",
+            base_model="vllm:Qwen/Qwen3-0.6B",
             path=str(parent_dir),
             created_at=datetime.now(UTC),
         )

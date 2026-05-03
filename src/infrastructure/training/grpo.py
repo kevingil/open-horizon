@@ -70,7 +70,7 @@ class GrpoTrainer(Trainer):
       max_seq_len     -- truncation length (default 512)
     """
 
-    base_model: str = "Qwen/Qwen2.5-0.5B-Instruct"
+    base_model: str = "Qwen/Qwen3-0.6B"
     default_steps: int = 16
     default_batch_size: int = 4
     default_lr: float = 1e-5

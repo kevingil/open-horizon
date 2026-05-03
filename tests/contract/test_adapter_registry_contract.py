@@ -16,7 +16,7 @@ def _record(adapter_id: str, *, parent: str | None = None, created_at: datetime 
     return AdapterRecord(
         id=adapter_id,
         parent_id=parent,
-        base_model="vllm:Qwen/Qwen2.5-0.5B",
+        base_model="vllm:Qwen/Qwen3-0.6B",
         path="(filled-by-registry)",
         created_at=created_at or datetime.now(UTC),
     )

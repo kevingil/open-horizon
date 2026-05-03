@@ -33,7 +33,7 @@ def harness(tmp_path: Path):
     )
     registry = LocalAdapterRegistry(root=tmp_path / "adapters")
     registry.register(
-        AdapterRecord(id="adapter-x", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)")
+        AdapterRecord(id="adapter-x", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)")
     )
     training_store = InMemoryTrainingStore()
     return EvalHarness(

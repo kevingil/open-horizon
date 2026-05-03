@@ -7,7 +7,7 @@ Skipped unless RL_VERIFIERS_SMOKE=1. Requires:
 
     RL_VERIFIERS_SMOKE=1 \\
     RL_VERIFIERS_SMOKE_BASE_URL=http://127.0.0.1:30000/v1 \\
-    RL_VERIFIERS_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \\
+    RL_VERIFIERS_SMOKE_MODEL=Qwen/Qwen3-8B \\
     RL_VERIFIERS_SMOKE_ENV_ID=vf-math \\
         pytest tests/smoke/test_verifiers_sglang.py -v
 """
@@ -20,7 +20,7 @@ import pytest
 
 ENABLED = os.environ.get("RL_VERIFIERS_SMOKE") == "1"
 BASE_URL = os.environ.get("RL_VERIFIERS_SMOKE_BASE_URL", "http://127.0.0.1:30000/v1")
-MODEL = os.environ.get("RL_VERIFIERS_SMOKE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
+MODEL = os.environ.get("RL_VERIFIERS_SMOKE_MODEL", "Qwen/Qwen3-8B")
 ENV_ID = os.environ.get("RL_VERIFIERS_SMOKE_ENV_ID", "vf-math")
 pytestmark = pytest.mark.skipif(not ENABLED, reason="RL_VERIFIERS_SMOKE not set")
 

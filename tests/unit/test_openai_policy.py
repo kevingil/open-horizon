@@ -63,20 +63,20 @@ def test_token_accounting_drives_cost_for_known_model() -> None:
     client = FakeOpenAI(
         [tool_use("call_1", "read_file", {"path": "r"}), text("done")]
     )
-    policy = OpenAICompatPolicyServer(client=client, model="gpt-4o-mini")
+    policy = OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini")
     task = _task()
     policy.generate_action(task, context=[])
     policy.generate_action(task, context=["obs"])
     assert policy.total_tokens(task.id) > 0
     cost = policy.cumulative_cost_usd(task.id)
     assert cost > 0
-    assert cost < 0.01  # a couple dozen tokens on gpt-4o-mini is tiny
+    assert cost < 0.01  # a couple dozen tokens on gpt-5.4-mini is tiny
 
 
 def test_self_hosted_model_costs_zero() -> None:
     client = FakeOpenAI([tool_use("call_1", "list_files", {})])
     policy = OpenAICompatPolicyServer(
-        client=client, model="vllm:Qwen/Qwen2.5-7B-Instruct",
+        client=client, model="vllm:Qwen/Qwen3-8B",
     )
     policy.generate_action(_task(), context=[])
     assert policy.total_tokens("t1") > 0
@@ -85,7 +85,7 @@ def test_self_hosted_model_costs_zero() -> None:
 
 def test_cached_tokens_subtract_from_input_to_avoid_double_billing() -> None:
     client = FakeOpenAI([text("hi", cached=4)])
-    policy = OpenAICompatPolicyServer(client=client, model="gpt-4o-mini")
+    policy = OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini")
     task = _task()
     policy.generate_action(task, context=[])
     # text() seeds 8 + cached prompt tokens; the policy should subtract cached
@@ -126,5 +126,5 @@ def test_extra_body_passes_through_to_provider() -> None:
 
 
 def test_policy_name_includes_model() -> None:
-    policy = OpenAICompatPolicyServer(client=FakeOpenAI(), model="gpt-4o-mini")
-    assert policy.policy_name() == "openai:gpt-4o-mini"
+    policy = OpenAICompatPolicyServer(client=FakeOpenAI(), model="gpt-5.4-mini")
+    assert policy.policy_name() == "openai:gpt-5.4-mini"

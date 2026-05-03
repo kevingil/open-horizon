@@ -50,9 +50,9 @@ def test_cache_read_is_much_cheaper() -> None:
 
 def test_self_hosted_prefixes_cost_zero() -> None:
     for model in (
-        "vllm:Qwen/Qwen2.5-7B",
-        "sglang:Qwen/Qwen2.5-7B-Instruct",
-        "ollama:qwen2.5:7b",
+        "vllm:Qwen/Qwen3-8B",
+        "sglang:Qwen/Qwen3-8B",
+        "ollama:qwen3:8b",
         "local:my-adapter",
     ):
         assert estimate_cost_usd(model, input_tokens=10_000_000) == 0.0

@@ -34,7 +34,7 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
                 scratch_root=tmp_path / "scratch",
             ),
             tool_harness=LocalToolHarness(root=source_repo),
-            policy_server=OpenAICompatPolicyServer(client=client, model="gpt-4o-mini"),
+            policy_server=OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini"),
             reward_pipeline=CompositeRewardPipeline(),
             artifact_store=InMemoryArtifactStore(),
             event_bus=bus,

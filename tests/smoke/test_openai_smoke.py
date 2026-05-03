@@ -9,10 +9,11 @@ deterministic. Works with any OpenAI-compat provider via env vars:
     # Local vLLM:
     RL_SMOKE_API_KEY=not-needed \\
     RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \\
-    RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \\
+    RL_SMOKE_MODEL=Qwen/Qwen3-8B \\
         pytest tests/smoke -v
 
-Uses gpt-4o-mini by default on a 3-step horizon to keep cost under $0.01.
+Uses gpt-5.4-mini by default on a 3-step horizon. Cost is dominated by
+input tokens; expect well under a cent per invocation on the default.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ import pytest
 
 SMOKE_KEY = os.environ.get("RL_SMOKE_API_KEY")
 SMOKE_BASE_URL = os.environ.get("RL_SMOKE_BASE_URL", "https://api.openai.com/v1")
-SMOKE_MODEL = os.environ.get("RL_SMOKE_MODEL", "gpt-4o-mini")
+SMOKE_MODEL = os.environ.get("RL_SMOKE_MODEL", "gpt-5.4-mini")
 pytestmark = pytest.mark.skipif(not SMOKE_KEY, reason="RL_SMOKE_API_KEY not set")
 
 

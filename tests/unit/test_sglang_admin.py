@@ -71,7 +71,7 @@ async def test_autoreload_subscriber_loads_on_publish() -> None:
     # Give the subscriber a tick to start tailing before we publish.
     await asyncio.sleep(0)
     adapter = AdapterRecord(
-        id="adapter-xyz", base_model="Qwen/Qwen2.5-7B",
+        id="adapter-xyz", base_model="Qwen/Qwen3-8B",
         path="/tmp/artifacts/adapters/adapter-xyz",
     )
     await bus.publish(AdapterPublished(adapter=adapter))

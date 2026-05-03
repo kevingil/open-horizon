@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     # "what server, what model" triple that selects a provider.
     llm_api_key: SecretStr | None = Field(default=None)
     llm_base_url: str = Field(default="https://api.openai.com/v1")
-    llm_model: str = Field(default="gpt-4o-mini")
+    llm_model: str = Field(default="gpt-5.4-mini")
     llm_max_output_tokens: int = Field(default=2048, ge=1)
     llm_max_retries: int = Field(default=3, ge=0)
 
@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     adapters_dir: Path = Field(default=Path("./artifacts/adapters"))
     train_step_delay_s: float = Field(default=0.0, ge=0)
     # GRPO trainer (only consulted when RL_TRAINER_BACKEND=grpo).
-    grpo_base_model: str = Field(default="Qwen/Qwen2.5-0.5B-Instruct")
+    grpo_base_model: str = Field(default="Qwen/Qwen3-0.6B")
 
     # SGLang admin endpoints. When sglang_admin_url is set and
     # sglang_autoload_lora is true, every published adapter is hot-loaded

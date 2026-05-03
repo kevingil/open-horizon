@@ -94,21 +94,22 @@ API: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp server, Anthropic via
 their compat surface. Pick the provider with three env vars:
 
 ```bash
-# OpenAI proper:
-RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-4o-mini
+# OpenAI proper. gpt-5.4-mini is the current cheap+capable default;
+# gpt-4.1-nano is the absolute floor.
+RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-5.4-mini
 
 # Local vLLM (the vllm:* prefix marks it $0 in cost tracking):
 RL_LLM_BASE_URL=http://127.0.0.1:8000/v1
-RL_LLM_MODEL=vllm:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_MODEL=vllm:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
-RL_LLM_MODEL=ollama:qwen2.5:7b
+RL_LLM_MODEL=ollama:qwen3:8b
 
 # SGLang (drop-in OpenAI-compat; the sglang:* prefix marks it $0):
 RL_LLM_BASE_URL=http://127.0.0.1:30000/v1
-RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_MODEL=sglang:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
 # Anthropic via OpenAI-compat:
@@ -139,7 +140,7 @@ make dev
 # Real GRPO-lite LoRA training
 pip install -e '.[train]'
 RL_TRAINER_BACKEND=grpo \
-RL_GRPO_BASE_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
+RL_GRPO_BASE_MODEL=Qwen/Qwen3-0.6B \
     make dev
 
 # Trigger a training run from completed rollouts
@@ -162,7 +163,7 @@ swapping in vLLM, SGLang, or Ollama is two env vars:
 
 ```bash
 # vLLM hosting Qwen with LoRA mounting:
-vllm serve Qwen/Qwen2.5-7B-Instruct --enable-lora \
+vllm serve Qwen/Qwen3-8B --enable-lora \
     --lora-modules adapter-aaa=./artifacts/adapters/adapter-aaa
 RL_POLICY_BACKEND=openai \
 RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
@@ -170,7 +171,7 @@ RL_LLM_MODEL=vllm:adapter-aaa \
     make dev
 
 # SGLang (RadixAttention prefix caching speeds up multi-turn rollouts):
-SGLANG_MODEL=Qwen/Qwen2.5-7B-Instruct \
+SGLANG_MODEL=Qwen/Qwen3-8B \
 SGLANG_LORA_PATHS="adapter-aaa=./artifacts/adapters/adapter-aaa" \
     scripts/serve_sglang.sh
 RL_POLICY_BACKEND=openai \
@@ -181,7 +182,7 @@ RL_LLM_MODEL=sglang:adapter-aaa \
 
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
-RL_LLM_MODEL=ollama:qwen2.5:7b \
+RL_LLM_MODEL=ollama:qwen3:8b \
     make dev
 ```
 
@@ -215,7 +216,7 @@ RL_ENV_BACKEND=verifiers \
 RL_VERIFIERS_ENV_ID=vf-math \
 RL_POLICY_BACKEND=openai \
 RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
-RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct \
+RL_LLM_MODEL=sglang:Qwen/Qwen3-8B \
     make dev
 ```
 
@@ -246,12 +247,12 @@ RL_SMOKE_API_KEY=sk-... pytest tests/smoke -v
 # Against a local vLLM:
 RL_SMOKE_API_KEY=not-needed \
 RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \
-RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \
+RL_SMOKE_MODEL=Qwen/Qwen3-8B \
     pytest tests/smoke -v
 ```
 
-Runs one real LLM rollout against a tiny tempdir repo; designed to cost well
-under a cent per invocation against gpt-4o-mini.
+Runs one real LLM rollout against a tiny tempdir repo; designed to cost
+well under a cent per invocation against gpt-5.4-mini.
 
 ## Configuration
 

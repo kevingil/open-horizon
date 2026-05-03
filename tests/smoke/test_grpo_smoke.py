@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 SMOKE_ENABLED = os.environ.get("RL_TRAINER_SMOKE") == "1"
-SMOKE_MODEL = os.environ.get("RL_TRAINER_SMOKE_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+SMOKE_MODEL = os.environ.get("RL_TRAINER_SMOKE_MODEL", "Qwen/Qwen3-0.6B")
 pytestmark = pytest.mark.skipif(not SMOKE_ENABLED, reason="RL_TRAINER_SMOKE not set")
 
 
