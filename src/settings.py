@@ -36,11 +36,16 @@ class Settings(BaseSettings):
     # Artifact store backend: "memory" or "sqlite".
     store_backend: str = Field(default="memory")
 
-    # Environment runner backend: "simulated", "repo", or "verifiers".
-    # The "verifiers" backend delegates the rollout loop to the verifiers
-    # framework (env.rollout owns the loop; rubric scoring comes from
-    # verifiers, not CompositeRewardPipeline).
-    env_backend: str = Field(default="simulated")
+    # Environment runner backend: "verifiers" or "repo".
+    # - verifiers (default): delegate the multi-turn rollout loop to the
+    #   verifiers framework. Production path for long-horizon agentic envs.
+    #   Requires `pip install -e .[envs]`.
+    # - repo: in-house tool-call loop against a sandboxed tempdir snapshot
+    #   of a real git checkout. Used when verifiers can't help (e.g.
+    #   "agent fixes a real bug in this checkout").
+    # The "simulated" stub backend was deleted in Phase A; tests now use
+    # repo or fake the verifiers runner directly.
+    env_backend: str = Field(default="verifiers")
 
     # Repo environment guard rails
     env_command_timeout_s: float = Field(default=10.0, gt=0)

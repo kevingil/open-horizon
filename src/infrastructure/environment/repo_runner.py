@@ -15,7 +15,6 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from domain.contracts import EnvironmentRunner
 from domain.models import TaskSpec
 
 from .sandbox import NullSandbox, Sandbox
@@ -35,8 +34,16 @@ class _TaskState:
 
 
 @dataclass
-class RepoEnvironmentRunner(EnvironmentRunner):
-    """Executes tool calls against per-task repo snapshots."""
+class RepoEnvironmentRunner:
+    """Executes tool calls against per-task repo snapshots.
+
+    No longer inherits from an ABC: verifiers' Environment.run_rollout is
+    the production path for env-owned multi-turn rollouts; this class is
+    the in-house path for "agent fixes a real bug in this checkout"
+    scenarios that need shell access against a sandboxed tempdir copy
+    of the repo. The two paths share nothing structural, so an ABC
+    bridging them was abstraction-for-abstraction's-sake.
+    """
 
     source_root: Path
     scratch_root: Path

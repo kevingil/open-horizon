@@ -6,8 +6,8 @@ which calls the abstract `rollout()` and then scores the rubric (when
 `score_rollouts=True`). Returns a `RolloutOutput` carrying the populated
 `State` (a dict subclass with `trajectory`, `completion`, `reward`,
 `metrics`, `usage`, `error`, ...). We delegate to it directly rather
-than driving step-by-step through our `EnvironmentRunner` ABC, since
-that would forfeit the rubric grader, RLMEnv, and OpenEnv glue.
+than driving step-by-step ourselves, since that would forfeit the
+rubric grader, RLMEnv, and OpenEnv glue.
 
 The verifiers package is an optional dependency; the import is lazy so
 users on the default backend never need it installed.

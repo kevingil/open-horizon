@@ -11,7 +11,6 @@ import structlog
 
 from domain.contracts import (
     ArtifactStore,
-    EnvironmentRunner,
     PolicyServer,
     RewardPipeline,
     RolloutCoordinator,
@@ -19,6 +18,7 @@ from domain.contracts import (
 )
 
 if TYPE_CHECKING:
+    from infrastructure.environment.repo_runner import RepoEnvironmentRunner
     from infrastructure.environment.verifiers_runner import (
         VerifiersRolloutRunner,
     )
@@ -54,7 +54,6 @@ log = structlog.get_logger(__name__)
 
 @dataclass
 class LocalRolloutCoordinator(RolloutCoordinator):
-    environment_runner: EnvironmentRunner
     tool_harness: ToolHarness
     policy_server: PolicyServer
     reward_pipeline: RewardPipeline
@@ -65,11 +64,17 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     max_tokens_per_run: int = 100_000
     daily_budget_usd: float = 0.0  # 0 disables the cap
     budget_window_hours: float = 24.0
-    # When set, the coordinator delegates the per-step rollout loop to this
-    # runner instead of driving policy/env/tools itself. Used by the
-    # verifiers backend, where verifiers' env.rollout() owns the loop and
-    # produces both trajectory and rubric-scored reward in one shot.
+    # Two execution paths, picked per rollout based on which is wired in:
+    # - external_rollout_runner: verifiers owns the multi-turn loop and
+    #   returns a fully scored State. Production path for long-horizon
+    #   agentic envs (vf-math, rlm, opencode/*).
+    # - repo_runner: in-house tool-call loop against a sandboxed tempdir
+    #   snapshot of a real git checkout. The path verifiers can't replace
+    #   ("agent fixes a real bug in this checkout"). PolicyServer drives
+    #   the loop turn-by-turn against this runner.
+    # Coordinator raises if neither is set when start_rollout is called.
     external_rollout_runner: VerifiersRolloutRunner | None = None
+    repo_runner: RepoEnvironmentRunner | None = None
     _semaphore: asyncio.Semaphore = field(init=False)
     _cancelled: set[str] = field(init=False, default_factory=set)
 
@@ -89,26 +94,13 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         return True
 
     async def bootstrap(self):
-        if self.artifact_store.list_runs():
-            return self.artifact_store.dashboard()
-        seeds = [
-            "Bootstrap local debug rollout for coding task replay.",
-            "Replay reward computation from stored trajectory artifacts.",
-        ]
-        for prompt in seeds:
-            await self.start_rollout(
-                RolloutRequest(
-                    prompt=prompt,
-                    repo_snapshot=".",
-                    infra_target="mac-local",
-                    horizon=4,
-                    success_criteria=[
-                        "trajectory saved",
-                        "reward replayable",
-                        "artifacts visible in dashboard",
-                    ],
-                )
-            )
+        """No-op startup hook: returns the current dashboard.
+
+        Previously seeded a couple of demo rollouts for an empty
+        dashboard, but that required a no-op SimulatedEnvironmentRunner
+        which we deleted in Phase A. Real demo content now comes from
+        the user actually issuing a rollout against a configured backend.
+        """
         return self.artifact_store.dashboard()
 
     async def start_rollout(
@@ -189,7 +181,13 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
             external = self.external_rollout_runner
             if external is None:
-                self.environment_runner.create_task(task)
+                if self.repo_runner is None:
+                    raise RuntimeError(
+                        "LocalRolloutCoordinator needs either an "
+                        "external_rollout_runner (verifiers) or a "
+                        "repo_runner; neither was provided."
+                    )
+                self.repo_runner.create_task(task)
                 if hasattr(self.policy_server, "begin_task"):
                     self.policy_server.begin_task(task)
 
@@ -427,6 +425,9 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     async def _run_steps(
         self, task: TaskSpec, request: RolloutRequest, run_id: str,
     ) -> tuple[list[TrajectoryStep], TrajectoryRecord]:
+        # Only the in-house repo path reaches here; the external runner
+        # branch returns from _execute_external before we ever get called.
+        assert self.repo_runner is not None
         steps: list[TrajectoryStep] = []
         context: list[str] = []
         errors: list[str] = []
@@ -436,7 +437,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 break
 
             action = self.policy_server.generate_action(task, context)
-            observation = self.environment_runner.step(task.id, action)
+            observation = self.repo_runner.step(task.id, action)
             self.tool_harness.record_command(action)
 
             action_step = TrajectoryStep(

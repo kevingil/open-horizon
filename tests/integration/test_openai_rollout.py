@@ -29,10 +29,6 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
     def make(client: FakeOpenAI) -> LocalRolloutCoordinator:
         bus = EventBus()
         return LocalRolloutCoordinator(
-            environment_runner=RepoEnvironmentRunner(
-                source_root=source_repo,
-                scratch_root=tmp_path / "scratch",
-            ),
             tool_harness=LocalToolHarness(root=source_repo),
             policy_server=OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini"),
             reward_pipeline=CompositeRewardPipeline(),
@@ -41,6 +37,10 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
             workspace_root=source_repo,
             max_parallel=1,
             max_tokens_per_run=10_000,
+            repo_runner=RepoEnvironmentRunner(
+                source_root=source_repo,
+                scratch_root=tmp_path / "scratch",
+            ),
         )
 
     return make

@@ -12,7 +12,18 @@ from settings import Settings
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(workspace_root=tmp_path, max_parallel_rollouts=2))
+    # Phase A: default env_backend flipped to "verifiers", which would
+    # try to import the (optional) verifiers package on first rollout.
+    # Tests that drive a real rollout pin to the repo backend so they
+    # stay self-contained and never reach for an unconfigured network.
+    return create_app(
+        Settings(
+            workspace_root=tmp_path,
+            max_parallel_rollouts=2,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        )
+    )
 
 
 @pytest.mark.asyncio
@@ -29,9 +40,11 @@ async def test_config_endpoint_reflects_env_backend(app) -> None:
         r = await client.get("/api/config")
         assert r.status_code == 200
         body = r.json()
-        assert body["env_backend"] == "simulated"
+        assert body["env_backend"] == "repo"
         assert body["policy_backend"] == "static"
         assert body["policy_name"]
+        # verifiers env_id is only populated when the verifiers backend is
+        # active; the test fixture pins env_backend=repo so it stays None.
         assert body["verifiers_env_id"] is None
 
 

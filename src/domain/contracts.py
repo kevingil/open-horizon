@@ -20,17 +20,6 @@ from .models import (
 )
 
 
-class EnvironmentRunner(ABC):
-    @abstractmethod
-    def create_task(self, task: TaskSpec) -> TaskSpec: ...
-
-    @abstractmethod
-    def step(self, task_id: str, action: str) -> str: ...
-
-    @abstractmethod
-    def reset(self, task_id: str) -> None: ...
-
-
 class ToolHarness(ABC):
     @abstractmethod
     def read_file(self, path: str) -> str: ...

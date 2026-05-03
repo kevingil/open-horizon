@@ -10,14 +10,12 @@ from application.training import TrainingService
 from domain.contracts import (
     AdapterRegistry,
     ArtifactStore,
-    EnvironmentRunner,
     Trainer,
     TrainingStore,
 )
 from infrastructure.adapters.local import LocalAdapterRegistry
 from infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from infrastructure.environment.sandbox import build_sandbox
-from infrastructure.environment.simulated import SimulatedEnvironmentRunner
 from infrastructure.environment.verifiers_runner import VerifiersRolloutRunner
 from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
 from infrastructure.policy.static import StaticPolicyServer
@@ -58,11 +56,10 @@ def build_application_services(
 
     policy = _build_policy(settings)
 
-    environment = _build_environment(settings, root)
+    repo_runner = _build_repo_runner(settings, root)
     external_runner = _build_external_rollout_runner(settings)
 
     coordinator = LocalRolloutCoordinator(
-        environment_runner=environment,
         tool_harness=LocalToolHarness(root=root),
         policy_server=policy,
         reward_pipeline=CompositeRewardPipeline(),
@@ -74,6 +71,7 @@ def build_application_services(
         daily_budget_usd=settings.daily_budget_usd,
         budget_window_hours=settings.budget_window_hours,
         external_rollout_runner=external_runner,
+        repo_runner=repo_runner,
     )
     training_service = TrainingService(
         trainer=trainer,
@@ -122,27 +120,21 @@ def _build_policy(settings: Settings):
             raise ValueError(f"Unsupported policy backend: {other}")
 
 
-def _build_environment(settings: Settings, root: Path) -> EnvironmentRunner:
-    match settings.env_backend:
-        case "simulated":
-            return SimulatedEnvironmentRunner()
-        case "repo":
-            scratch = settings.artifacts_dir / "workspaces"
-            sandbox = build_sandbox(settings.env_sandbox, settings.sandbox_image)
-            return RepoEnvironmentRunner(
-                source_root=root,
-                scratch_root=scratch,
-                command_timeout_s=settings.env_command_timeout_s,
-                max_output_bytes=settings.env_max_output_bytes,
-                sandbox=sandbox,
-            )
-        case "verifiers":
-            # verifiers owns its own rollout loop; the EnvironmentRunner ABC
-            # is unused on this path. Hand back a no-op so the dataclass
-            # invariant holds.
-            return SimulatedEnvironmentRunner()
-        case other:
-            raise ValueError(f"Unsupported env backend: {other}")
+def _build_repo_runner(settings: Settings, root: Path) -> RepoEnvironmentRunner | None:
+    """Repo path is opt-in: only built when env_backend=repo. The verifiers
+    path doesn't need a runner, and we no longer have a no-op simulated
+    runner to fall back on."""
+    if settings.env_backend != "repo":
+        return None
+    scratch = settings.artifacts_dir / "workspaces"
+    sandbox = build_sandbox(settings.env_sandbox, settings.sandbox_image)
+    return RepoEnvironmentRunner(
+        source_root=root,
+        scratch_root=scratch,
+        command_timeout_s=settings.env_command_timeout_s,
+        max_output_bytes=settings.env_max_output_bytes,
+        sandbox=sandbox,
+    )
 
 
 def _build_external_rollout_runner(settings: Settings) -> VerifiersRolloutRunner | None:

@@ -20,13 +20,13 @@ from domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from tests.conftest import _StubRepoRunner
 from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
 from interface.api.app import create_app
 from settings import Settings
+from tests.conftest import _StubRepoRunner
 
 
 def _seed_detail(cost: float, at: datetime) -> RunDetail:
