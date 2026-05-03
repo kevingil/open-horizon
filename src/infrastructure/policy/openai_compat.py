@@ -53,6 +53,11 @@ class _TaskContext:
     input_tokens: int = 0
     output_tokens: int = 0
     cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # Reasoning tokens (o-series, gpt-5) are billed inside completion_tokens
+    # at the output rate, so we track them for visibility only - they are
+    # NOT added to output_tokens a second time.
+    reasoning_tokens: int = 0
 
 
 @dataclass
@@ -120,13 +125,19 @@ class OpenAICompatPolicyServer(PolicyServer):
             input_tokens=ctx.input_tokens,
             output_tokens=ctx.output_tokens,
             cache_read_tokens=ctx.cache_read_tokens,
+            cache_write_tokens=ctx.cache_write_tokens,
         )
 
     def total_tokens(self, task_id: str) -> int:
         ctx = self.contexts.get(task_id)
         if ctx is None:
             return 0
-        return ctx.input_tokens + ctx.output_tokens + ctx.cache_read_tokens
+        return (
+            ctx.input_tokens
+            + ctx.output_tokens
+            + ctx.cache_read_tokens
+            + ctx.cache_write_tokens
+        )
 
     def _call_with_retry(self, ctx: _TaskContext) -> Any:
         last_exc: Exception | None = None
@@ -156,16 +167,44 @@ class OpenAICompatPolicyServer(PolicyServer):
         usage = getattr(response, "usage", None)
         if usage is None:
             return
-        ctx.input_tokens += int(getattr(usage, "prompt_tokens", 0) or 0)
-        ctx.output_tokens += int(getattr(usage, "completion_tokens", 0) or 0)
-        # OpenAI: usage.prompt_tokens_details.cached_tokens (cache hits are
-        # counted *inside* prompt_tokens, not added on top, so subtract them
-        # to avoid double-billing).
-        details = getattr(usage, "prompt_tokens_details", None)
-        cached = int(getattr(details, "cached_tokens", 0) or 0) if details else 0
-        if cached:
-            ctx.cache_read_tokens += cached
-            ctx.input_tokens = max(0, ctx.input_tokens - cached)
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+
+        # Anthropic via OpenAI-compat surfaces cache buckets at the top
+        # level of `usage` (cache_creation_input_tokens / cache_read_input_tokens).
+        # The proxy folds these INTO prompt_tokens, so subtract to avoid
+        # double-billing once we route them to their own price tier.
+        cache_write = int(_pick(usage, "cache_creation_input_tokens") or 0)
+        cache_read_anthropic = int(_pick(usage, "cache_read_input_tokens") or 0)
+
+        # OpenAI shape: prompt_tokens_details.cached_tokens (also folded
+        # into prompt_tokens, also needs subtracting).
+        details_in = getattr(usage, "prompt_tokens_details", None)
+        cache_read_openai = int(_pick(details_in, "cached_tokens") or 0) if details_in else 0
+
+        # Reasoning tokens (o-series, gpt-5) live inside completion_tokens
+        # and are billed at the output rate. Track separately for
+        # visibility; do NOT subtract from output_tokens or we'd undercount.
+        details_out = getattr(usage, "completion_tokens_details", None)
+        reasoning = int(_pick(details_out, "reasoning_tokens") or 0) if details_out else 0
+
+        cache_read = cache_read_anthropic + cache_read_openai
+        ctx.input_tokens += max(0, prompt_tokens - cache_read - cache_write)
+        ctx.output_tokens += completion_tokens
+        ctx.cache_read_tokens += cache_read
+        ctx.cache_write_tokens += cache_write
+        ctx.reasoning_tokens += reasoning
+
+
+def _pick(obj: Any, attr: str) -> Any:
+    """Tolerant getter that handles both attribute access (Pydantic model)
+    and dict-style access (raw response or proxy)."""
+    if obj is None:
+        return None
+    val = getattr(obj, attr, None)
+    if val is None and isinstance(obj, dict):
+        val = obj.get(attr)
+    return val
 
 
 def _initial_user_prompt(task: TaskSpec) -> str:

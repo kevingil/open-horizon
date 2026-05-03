@@ -99,6 +99,42 @@ def test_cached_tokens_subtract_from_input_to_avoid_double_billing() -> None:
     assert policy.contexts[task.id].cache_read_tokens == 4
 
 
+def test_anthropic_cache_buckets_route_to_their_own_tiers() -> None:
+    # Anthropic-via-compat reports cache_creation_input_tokens and
+    # cache_read_input_tokens at the top level of `usage`, folded INTO
+    # prompt_tokens. The policy must split them out and bill at the
+    # cache-write / cache-read rates instead of the input rate.
+    client = FakeOpenAI([text("ok", cache_creation=20, cache_read_anthropic=5)])
+    policy = OpenAICompatPolicyServer(client=client, model="claude-haiku-4-5")
+    task = _task()
+    policy.generate_action(task, context=[])
+    ctx = policy.contexts[task.id]
+    # prompt_tokens was 8 + 20 + 5 = 33; expect 8 input, 20 write, 5 read.
+    assert ctx.input_tokens == 8
+    assert ctx.cache_write_tokens == 20
+    assert ctx.cache_read_tokens == 5
+    # Cost = (8 * 1.0 + 6 * 5.0 + 20 * 1.25 + 5 * 0.1) / 1e6 = 6.35e-5
+    # pricing.estimate_cost_usd rounds to 6 decimals so allow that tolerance.
+    expected = (8 * 1.0 + 6 * 5.0 + 20 * 1.25 + 5 * 0.1) / 1_000_000
+    assert policy.cumulative_cost_usd(task.id) == pytest.approx(expected, abs=1e-6)
+
+
+def test_reasoning_tokens_tracked_but_not_double_billed() -> None:
+    # Reasoning tokens live INSIDE completion_tokens at the output rate.
+    # The policy must record them for visibility (ctx.reasoning_tokens)
+    # without adding them to output_tokens a second time.
+    client = FakeOpenAI([text("done", reasoning=12)])
+    policy = OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini")
+    task = _task()
+    policy.generate_action(task, context=[])
+    ctx = policy.contexts[task.id]
+    # text(reasoning=12) returns completion_tokens=6+12=18; output_tokens
+    # should match that exactly (no double-counting), and reasoning_tokens
+    # records the inner 12 for observability.
+    assert ctx.output_tokens == 18
+    assert ctx.reasoning_tokens == 12
+
+
 def test_retries_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("time.sleep", lambda *_: None)
     boom = RuntimeError("transient")
