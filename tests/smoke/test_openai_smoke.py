@@ -9,10 +9,11 @@ deterministic. Works with any OpenAI-compat provider via env vars:
     # Local vLLM:
     RL_SMOKE_API_KEY=not-needed \\
     RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \\
-    RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \\
+    RL_SMOKE_MODEL=Qwen/Qwen3-8B \\
         pytest tests/smoke -v
 
-Uses gpt-4o-mini by default on a 3-step horizon to keep cost under $0.01.
+Uses gpt-5.4-mini by default on a 3-step horizon. Cost is dominated by
+input tokens; expect well under a cent per invocation on the default.
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ import pytest
 
 SMOKE_KEY = os.environ.get("RL_SMOKE_API_KEY")
 SMOKE_BASE_URL = os.environ.get("RL_SMOKE_BASE_URL", "https://api.openai.com/v1")
-SMOKE_MODEL = os.environ.get("RL_SMOKE_MODEL", "gpt-4o-mini")
+SMOKE_MODEL = os.environ.get("RL_SMOKE_MODEL", "gpt-5.4-mini")
 pytestmark = pytest.mark.skipif(not SMOKE_KEY, reason="RL_SMOKE_API_KEY not set")
 
 
@@ -31,35 +32,32 @@ pytestmark = pytest.mark.skipif(not SMOKE_KEY, reason="RL_SMOKE_API_KEY not set"
 async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
     from openai import OpenAI
 
-    from rl_stack.application.coordinator import LocalRolloutCoordinator
-    from rl_stack.application.event_bus import EventBus
-    from rl_stack.domain.models import RolloutRequest, RunStatus
-    from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
-    from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
-    from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-    from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
-    from rl_stack.infrastructure.tools.local import LocalToolHarness
+    from application.coordinator import LocalRolloutCoordinator
+    from application.event_bus import EventBus
+    from domain.models import RolloutRequest, RunStatus
+    from infrastructure.environment.repo_runner import RepoEnvironmentRunner
+    from infrastructure.rewards.composite import CompositeRewardPipeline
+    from infrastructure.store.sqlite import SqliteArtifactStore
+    from infrastructure.tools.local import LocalToolHarness
 
     source = tmp_path / "repo"
     source.mkdir()
     (source / "README.md").write_text("project: rl-smoke\nstatus: alive\n")
 
     coord = LocalRolloutCoordinator(
-        environment_runner=RepoEnvironmentRunner(
-            source_root=source, scratch_root=tmp_path / "scratch",
-        ),
         tool_harness=LocalToolHarness(root=source),
-        policy_server=OpenAICompatPolicyServer(
-            client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
-            model=SMOKE_MODEL,
-            max_output_tokens=512,
-        ),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=SqliteArtifactStore(path=tmp_path / "runs.db"),
         event_bus=EventBus(),
         workspace_root=source,
         max_parallel=1,
         max_tokens_per_run=5_000,
+        repo_runner=RepoEnvironmentRunner(
+            source_root=source, scratch_root=tmp_path / "scratch",
+        ),
+        policy_client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
+        policy_model=SMOKE_MODEL,
+        policy_max_output_tokens=512,
     )
     detail = await coord.start_rollout(
         RolloutRequest(

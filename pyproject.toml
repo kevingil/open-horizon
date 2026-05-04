@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rl-stack"
+name = "long-horizon-distributed-rl"
 version = "0.1.0"
-description = "Docs-first agentic RL stack with thin observability UI."
+description = "Long-horizon distributed reinforcement learning with thin observability UI."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -41,14 +41,22 @@ train = [
 envs = [
   "verifiers>=0.1.11,<0.2",
 ]
+# prime-rl trainer backend (RL_TRAINER_BACKEND=prime-rl). Installs the
+# CLI we shell out to plus the heavy GPU stack it needs at training
+# time. Requires the [train] extras above; install with:
+#   pip install -e '.[train,prime-rl]'
+prime-rl = [
+  "prime-rl",
+]
 
 [project.scripts]
-rl-replay = "rl_stack.interface.cli.replay:main"
-rl-train = "rl_stack.interface.cli.train:main"
-rl-eval = "rl_stack.interface.cli.eval:main"
+rl-replay = "interface.cli.replay:main"
+rl-train = "interface.cli.train:main"
+rl-eval = "interface.cli.eval:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+py-modules = ["bootstrap", "runtime_logging", "settings"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

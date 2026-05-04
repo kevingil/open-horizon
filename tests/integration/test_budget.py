@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.models import (
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RolloutRequest,
@@ -20,13 +20,12 @@ from rl_stack.domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.policy.static import StaticPolicyServer
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
+from interface.api.app import create_app
+from settings import Settings
+from tests.conftest import _scripted_repo_loop, _StubRepoRunner
 
 
 def _seed_detail(cost: float, at: datetime) -> RunDetail:
@@ -63,9 +62,7 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
     store.save_run(_seed_detail(0.35, now - timedelta(hours=1)))
 
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=bus,
@@ -73,6 +70,9 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
         max_parallel=1,
         daily_budget_usd=0.5,
         budget_window_hours=24,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=1),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
 
     captured: list = []
@@ -102,16 +102,17 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
 async def test_coordinator_allows_rollout_when_under_cap(tmp_path: Path) -> None:
     store = InMemoryArtifactStore()
     coord = LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=EventBus(),
         workspace_root=tmp_path,
         max_parallel=1,
-        daily_budget_usd=10.0,  # well above anything the simulated env produces
+        daily_budget_usd=10.0,  # well above anything the stub repo runner produces
         budget_window_hours=24,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=1),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
     detail = await coord.start_rollout(
         RolloutRequest(prompt="fine", horizon=2), run_id="run-fine",

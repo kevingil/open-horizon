@@ -6,16 +6,16 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from rl_stack.domain.contracts import TrainingStore
-from rl_stack.domain.models import (
+from domain.contracts import TrainingStore
+from domain.models import (
     EvalReport,
     EvalTaskScore,
     TrainingMetricPoint,
     TrainingRunRecord,
     TrainingStatus,
 )
-from rl_stack.infrastructure.training.memory_store import InMemoryTrainingStore
-from rl_stack.infrastructure.training.sqlite_store import SqliteTrainingStore
+from infrastructure.training.memory_store import InMemoryTrainingStore
+from infrastructure.training.sqlite_store import SqliteTrainingStore
 
 
 def _run(run_id: str, *, created_at: datetime | None = None) -> TrainingRunRecord:

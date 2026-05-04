@@ -11,7 +11,7 @@ const rootRoute = createRootRoute({
       <header className="app-header">
         <div>
           <p className="eyebrow">Observability</p>
-          <h1>RL Stack Dashboard</h1>
+          <h1>Distributed RL Dashboard</h1>
         </div>
         <nav className="app-nav">
           <Link to="/" activeOptions={{ exact: true }}>

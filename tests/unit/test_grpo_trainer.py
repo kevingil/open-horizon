@@ -18,7 +18,7 @@ torch = pytest.importorskip("torch")
 
 import torch.nn as nn
 
-from rl_stack.domain.models import (
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RunDetail,
@@ -31,8 +31,8 @@ from rl_stack.domain.models import (
     TrajectoryRecord,
     TrajectoryStep,
 )
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
-from rl_stack.infrastructure.training.grpo import (
+from infrastructure.adapters.local import LocalAdapterRegistry
+from infrastructure.training.grpo import (
     GrpoTrainer,
     TokenizerLike,
     _build_examples,
@@ -170,7 +170,7 @@ def test_weighted_nll_descends_for_positive_advantage(seed: int) -> None:
     model = TinyLM()
     tokenizer = CharTokenizer()
 
-    from rl_stack.infrastructure.training.grpo import _Example
+    from infrastructure.training.grpo import _Example
 
     pos = [_Example(prompt="ABC", response="XYZ", advantage=1.0)]
     # Measure NLL before the step, run the step, measure again.
@@ -188,7 +188,7 @@ def test_weighted_nll_climbs_for_negative_advantage() -> None:
     torch.manual_seed(0)
     model = TinyLM()
     tokenizer = CharTokenizer()
-    from rl_stack.infrastructure.training.grpo import _Example
+    from infrastructure.training.grpo import _Example
 
     neg = [_Example(prompt="ABC", response="XYZ", advantage=-1.0)]
     before = _nll_only(model, tokenizer, neg[0])

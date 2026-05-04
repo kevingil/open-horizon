@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rl_stack.domain.models import (
+from domain.models import (
     ArtifactRecord,
     RewardRecord,
     RunDetail,
@@ -14,7 +14,7 @@ from rl_stack.domain.models import (
     WorkerRecord,
     WorkerStatus,
 )
-from rl_stack.infrastructure.store.sqlite import SqliteArtifactStore
+from infrastructure.store.sqlite import SqliteArtifactStore
 
 
 def _detail(run_id: str) -> RunDetail:

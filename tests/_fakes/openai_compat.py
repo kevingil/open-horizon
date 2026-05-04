@@ -44,10 +44,19 @@ class _PromptDetails:
 
 
 @dataclass
+class _CompletionDetails:
+    reasoning_tokens: int = 0
+
+
+@dataclass
 class _Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     prompt_tokens_details: _PromptDetails | None = None
+    completion_tokens_details: _CompletionDetails | None = None
+    # Anthropic-via-OpenAI-compat top-level cache buckets.
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
 
 
 @dataclass
@@ -75,13 +84,37 @@ def tool_use(call_id: str, name: str, arguments: dict[str, Any]) -> _Response:
     )
 
 
-def text(body: str, *, cached: int = 0) -> _Response:
+def text(
+    body: str,
+    *,
+    cached: int = 0,
+    cache_creation: int = 0,
+    cache_read_anthropic: int = 0,
+    reasoning: int = 0,
+) -> _Response:
+    """Script a text response with optional usage embellishments.
+
+    `cached`              - OpenAI shape (prompt_tokens_details.cached_tokens)
+    `cache_creation`      - Anthropic-via-compat (cache_creation_input_tokens)
+    `cache_read_anthropic`- Anthropic-via-compat (cache_read_input_tokens)
+    `reasoning`           - o-series / gpt-5 reasoning tokens
+                            (completion_tokens_details.reasoning_tokens)
+
+    Both providers fold cache buckets into prompt_tokens, so the fake
+    reflects that: prompt_tokens grows with the cache fields. Reasoning
+    lives inside completion_tokens for the same reason.
+    """
     return _Response(
         choices=[_Choice(message=_Message(content=body))],
         usage=_Usage(
-            prompt_tokens=8 + cached,
-            completion_tokens=6,
+            prompt_tokens=8 + cached + cache_creation + cache_read_anthropic,
+            completion_tokens=6 + reasoning,
             prompt_tokens_details=_PromptDetails(cached_tokens=cached) if cached else None,
+            completion_tokens_details=(
+                _CompletionDetails(reasoning_tokens=reasoning) if reasoning else None
+            ),
+            cache_creation_input_tokens=cache_creation,
+            cache_read_input_tokens=cache_read_anthropic,
         ),
     )
 

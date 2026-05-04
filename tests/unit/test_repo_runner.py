@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.domain.models import TaskSpec, ToolPermission
-from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
+from domain.models import TaskSpec, ToolPermission
+from infrastructure.environment.repo_runner import RepoEnvironmentRunner
 
 
 @pytest.fixture

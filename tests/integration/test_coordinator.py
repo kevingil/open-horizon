@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.domain.events import DomainEvent
-from rl_stack.domain.models import RolloutRequest, RunStatus
+from application.coordinator import LocalRolloutCoordinator
+from domain.events import DomainEvent
+from domain.models import RolloutRequest, RunStatus
 
 
 async def _collect_until_completed(bus) -> tuple[list[DomainEvent], asyncio.Task]:
@@ -70,12 +70,12 @@ async def test_progress_ticks_include_cumulative_step_index(
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_seeds_runs_only_once(
+async def test_bootstrap_returns_dashboard_without_seeding(
     coordinator: LocalRolloutCoordinator,
 ) -> None:
-    await coordinator.bootstrap()
-    after_first = len(coordinator.artifact_store.list_runs())
-    await coordinator.bootstrap()
-    after_second = len(coordinator.artifact_store.list_runs())
-    assert after_first == after_second
-    assert after_first >= 2
+    # Phase A removed seed rollouts from bootstrap(); it's a no-op that
+    # returns the (empty) dashboard. Demo content now comes from real
+    # rollouts against a configured backend, not from a startup hook.
+    snapshot = await coordinator.bootstrap()
+    assert snapshot.runs == []
+    assert coordinator.artifact_store.list_runs() == []

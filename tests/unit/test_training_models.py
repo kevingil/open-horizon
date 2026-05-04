@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import json
 
-from rl_stack.domain.events import (
+from domain.events import (
     AdapterPublished,
     EvalCompleted,
     TrainingCompleted,
     TrainingMetric,
     TrainingStarted,
 )
-from rl_stack.domain.models import (
+from domain.models import (
     AdapterRecord,
     EvalReport,
     EvalTaskScore,
@@ -20,7 +20,7 @@ from rl_stack.domain.models import (
 
 
 def _adapter(id: str = "adapter-x") -> AdapterRecord:
-    return AdapterRecord(id=id, base_model="vllm:Qwen/Qwen2.5-0.5B", path="/tmp/x")
+    return AdapterRecord(id=id, base_model="vllm:Qwen/Qwen3-0.6B", path="/tmp/x")
 
 
 def test_training_run_record_default_status_is_pending() -> None:

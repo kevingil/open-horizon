@@ -8,10 +8,10 @@ import json
 
 import pytest
 
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.events import AdapterPublished
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.infrastructure.policy.sglang_admin import (
+from application.event_bus import EventBus
+from domain.events import AdapterPublished
+from domain.models import AdapterRecord
+from infrastructure.policy.sglang_admin import (
     SglangLoraReloader,
     register_sglang_lora_autoreload,
 )
@@ -71,7 +71,7 @@ async def test_autoreload_subscriber_loads_on_publish() -> None:
     # Give the subscriber a tick to start tailing before we publish.
     await asyncio.sleep(0)
     adapter = AdapterRecord(
-        id="adapter-xyz", base_model="Qwen/Qwen2.5-7B",
+        id="adapter-xyz", base_model="Qwen/Qwen3-8B",
         path="/tmp/artifacts/adapters/adapter-xyz",
     )
     await bus.publish(AdapterPublished(adapter=adapter))

@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.events import DomainEvent
-from rl_stack.domain.models import (
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.events import DomainEvent
+from domain.models import (
     RewardRecord,
     RolloutRequest,
     RunStatus,
@@ -24,14 +24,12 @@ from rl_stack.domain.models import (
     TrajectoryRecord,
     TrajectoryStep,
 )
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.environment.verifiers_runner import (
+from infrastructure.environment.verifiers_runner import (
     VerifiersRolloutOutcome,
 )
-from rl_stack.infrastructure.policy.static import StaticPolicyServer
-from rl_stack.infrastructure.rewards.heuristic import HeuristicRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
+from infrastructure.rewards.heuristic import HeuristicRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
 
 
 class _FakeVerifiersRunner:
@@ -83,9 +81,7 @@ def _build_outcome(task_id: str = "task-x") -> VerifiersRolloutOutcome:
 
 def _make_coordinator(tmp_path: Path, runner: _FakeVerifiersRunner) -> LocalRolloutCoordinator:
     return LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=HeuristicRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=EventBus(),

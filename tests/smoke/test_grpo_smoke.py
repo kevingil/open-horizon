@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 SMOKE_ENABLED = os.environ.get("RL_TRAINER_SMOKE") == "1"
-SMOKE_MODEL = os.environ.get("RL_TRAINER_SMOKE_MODEL", "Qwen/Qwen2.5-0.5B-Instruct")
+SMOKE_MODEL = os.environ.get("RL_TRAINER_SMOKE_MODEL", "Qwen/Qwen3-0.6B")
 pytestmark = pytest.mark.skipif(not SMOKE_ENABLED, reason="RL_TRAINER_SMOKE not set")
 
 
@@ -25,7 +25,7 @@ def test_real_grpo_step_produces_adapter(tmp_path: Path) -> None:
     pytest.importorskip("transformers")
     pytest.importorskip("peft")
 
-    from rl_stack.domain.models import (
+    from domain.models import (
         ArtifactRecord,
         RewardRecord,
         RunDetail,
@@ -37,8 +37,8 @@ def test_real_grpo_step_produces_adapter(tmp_path: Path) -> None:
         TrajectoryRecord,
         TrajectoryStep,
     )
-    from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
-    from rl_stack.infrastructure.training.grpo import GrpoTrainer
+    from infrastructure.adapters.local import LocalAdapterRegistry
+    from infrastructure.training.grpo import GrpoTrainer
 
     def _detail(task_id: str, response: str, reward: float) -> RunDetail:
         task = TaskSpec(

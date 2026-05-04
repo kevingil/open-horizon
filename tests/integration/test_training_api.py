@@ -5,20 +5,25 @@ import asyncio
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from domain.models import AdapterRecord
+from interface.api.app import create_app
+from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(
+    built = create_app(
         Settings(
             workspace_root=tmp_path,
             adapters_dir=tmp_path / "adapters",
             artifacts_dir=tmp_path / "artifacts",
+            env_backend="repo",
         )
     )
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
+    return built
 
 
 async def _seed_run(client: AsyncClient) -> str:
@@ -75,11 +80,11 @@ async def test_create_training_run_completes_and_publishes_adapter(app) -> None:
 async def test_get_adapter_returns_lineage_and_eval_reports(app) -> None:
     services = app.state.services
     services.adapter_registry.register(
-        AdapterRecord(id="root", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)")
+        AdapterRecord(id="root", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)")
     )
     services.adapter_registry.register(
         AdapterRecord(
-            id="child", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)", parent_id="root",
+            id="child", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)", parent_id="root",
         )
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -95,7 +100,7 @@ async def test_get_adapter_returns_lineage_and_eval_reports(app) -> None:
 async def test_eval_endpoint_runs_harness_and_persists_report(app) -> None:
     services = app.state.services
     services.adapter_registry.register(
-        AdapterRecord(id="adapter-eval", base_model="vllm:Qwen/Qwen2.5-0.5B", path="(filled)")
+        AdapterRecord(id="adapter-eval", base_model="vllm:Qwen/Qwen3-0.6B", path="(filled)")
     )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post(

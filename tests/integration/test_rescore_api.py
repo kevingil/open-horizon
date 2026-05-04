@@ -3,13 +3,25 @@ from __future__ import annotations
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from interface.api.app import create_app
+from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(workspace_root=tmp_path))
+    built = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        )
+    )
+    # Phase C: dispatch reads the client from _client_cache; pre-populate
+    # so tests never dial out.
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
+    return built
 
 
 @pytest.mark.asyncio
@@ -68,7 +80,7 @@ async def test_rescore_unknown_run_returns_404(app) -> None:
 
 
 def test_replay_cli_list(capsys) -> None:
-    from rl_stack.interface.cli.replay import main
+    from interface.cli.replay import main
 
     code = main(["--list"])
     out = capsys.readouterr().out

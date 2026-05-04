@@ -7,43 +7,38 @@ import pytest
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.contracts import PolicyServer
-from rl_stack.domain.models import RolloutRequest, RunStatus, TaskSpec
-from rl_stack.infrastructure.environment.simulated import SimulatedEnvironmentRunner
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.models import RolloutRequest, RunStatus
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
+from interface.api.app import create_app
+from settings import Settings
+from tests._fakes.openai_compat import FakeOpenAI, tool_use
+from tests.conftest import _StubRepoRunner
 
 
-class SlowPolicy(PolicyServer):
-    name: str = "slow"
-
-    def __init__(self) -> None:
-        self._calls = 0
-
-    def policy_name(self) -> str:
-        return self.name
-
-    def generate_action(self, task: TaskSpec, context: list[str]) -> str:
-        self._calls += 1
-        return json.dumps({"tool": "list_files", "input": {"path": "."}})
+def _slow_loop() -> FakeOpenAI:
+    """FakeOpenAI scripted with 50 tool-call turns - long enough for the
+    cancellation-mid-rollout tests to actually have something to cancel."""
+    return FakeOpenAI(
+        [tool_use(f"call_{i}", "list_files", {"path": "."}) for i in range(50)],
+    )
 
 
 @pytest.fixture
 def coordinator(tmp_path):
     return LocalRolloutCoordinator(
-        environment_runner=SimulatedEnvironmentRunner(),
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=SlowPolicy(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=EventBus(),
         workspace_root=tmp_path,
         max_parallel=1,
+        repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_slow_loop(),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
 
 
@@ -92,7 +87,18 @@ async def test_cancel_idempotent_on_terminal_run(coordinator) -> None:
 
 @pytest.mark.asyncio
 async def test_api_cancel_endpoint(tmp_path) -> None:
-    app = create_app(Settings(workspace_root=tmp_path, max_parallel_rollouts=1))
+    app = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            max_parallel_rollouts=1,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        ),
+    )
+    # Bootstrap built a real OpenAI client; swap in a fake so the test
+    # never dials out (Phase C will harden this via a collection guard).
+    coord = app.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _slow_loop()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/runs", json={"prompt": "x", "horizon": 1})
         assert resp.status_code == 202
@@ -106,14 +112,28 @@ async def test_api_cancel_endpoint(tmp_path) -> None:
 
 
 def test_api_cancel_surfaces_on_websocket(tmp_path) -> None:
-    app = create_app(Settings(workspace_root=tmp_path, max_parallel_rollouts=1))
+    app = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            max_parallel_rollouts=1,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        ),
+    )
+    # Same fake-client swap as test_api_cancel_endpoint: keep the test offline.
+    coord = app.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _slow_loop()
     with TestClient(app) as client, client.websocket_connect("/ws/events") as ws:
         resp = client.post("/api/runs", json={"prompt": "race", "horizon": 50})
         run_id = resp.json()["run_id"]
         client.post(f"/api/runs/{run_id}/cancel")
 
+        # Phase B: each repo turn emits action + observation step.recorded
+        # plus progress.ticked = 3 events per turn. With horizon=50 that's
+        # up to 150+ events before the terminal one, so the receive cap
+        # has to be generous.
         kinds: list[str] = []
-        for _ in range(80):
+        for _ in range(400):
             data = ws.receive_text()
             kinds.append(json.loads(data)["kind"])
             if "rollout.cancelled" in kinds or "rollout.completed" in kinds:

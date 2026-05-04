@@ -7,16 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.domain.contracts import AdapterRegistry
-from rl_stack.domain.models import AdapterRecord
-from rl_stack.infrastructure.adapters.local import LocalAdapterRegistry
+from domain.contracts import AdapterRegistry
+from domain.models import AdapterRecord
+from infrastructure.adapters.local import LocalAdapterRegistry
 
 
 def _record(adapter_id: str, *, parent: str | None = None, created_at: datetime | None = None) -> AdapterRecord:
     return AdapterRecord(
         id=adapter_id,
         parent_id=parent,
-        base_model="vllm:Qwen/Qwen2.5-0.5B",
+        base_model="vllm:Qwen/Qwen3-0.6B",
         path="(filled-by-registry)",
         created_at=created_at or datetime.now(UTC),
     )

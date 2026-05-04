@@ -25,8 +25,8 @@ import types
 
 import pytest
 
-from rl_stack.domain.models import TaskSpec, ToolPermission
-from rl_stack.infrastructure.environment.verifiers_runner import (
+from domain.models import TaskSpec, ToolPermission
+from infrastructure.environment.verifiers_runner import (
     VerifiersRolloutRunner,
 )
 
@@ -97,7 +97,7 @@ async def test_run_translates_state_into_trajectory(monkeypatch):
 
     runner = VerifiersRolloutRunner(
         client=object(),
-        model="sglang:Qwen/Qwen2.5-7B-Instruct",
+        model="sglang:Qwen/Qwen3-8B",
         env_id="vf-math",
     )
     outcome = await runner.run(_make_task(), run_id="run-1")
@@ -120,7 +120,7 @@ async def test_run_translates_state_into_trajectory(monkeypatch):
     # run_rollout is called with the bare model id (no provider prefix)
     # and a RolloutInput dict (not a free-floating prompt kwarg).
     call = env.calls[0]
-    assert call["model"] == "Qwen/Qwen2.5-7B-Instruct"
+    assert call["model"] == "Qwen/Qwen3-8B"
     assert call["input"]["prompt"] == [{"role": "user", "content": "solve me"}]
 
 

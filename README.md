@@ -1,33 +1,74 @@
-# RL Stack
+# Distributed RL for Long-Horizon LLM Agents
 
-<p>
-  <a href="https://github.com/sgl-project/sglang">
-    <img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="48">
-  </a>
-  &nbsp;&nbsp;
-  <a href="https://github.com/PrimeIntellect-ai/verifiers">
-    <img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="48">
-  </a>
-</p>
+Training, evaluations, and observability for long-horizon LLM
+agents.
 
-Docs-first starter repo for a one-person, many-agent agentic reinforcement learning stack.
+## Quick Start
 
-Three priorities:
+Backend:
 
-1. Mac-runnable local debug path.
-2. Cheap single-GPU path that preserves the same interfaces.
-3. Ray-compatible scale-out path without redesigning core abstractions.
+```bash
+uv sync --extra dev
+source .venv/bin/activate
+cp .env.example .env
+make dev
+```
+
+The default config uses the static policy and simulated environment, so you can
+start without an API key. For OpenAI or another OpenAI-compatible provider,
+edit `.env` and set `RL_POLICY_BACKEND=openai`, `RL_LLM_API_KEY`,
+`RL_LLM_BASE_URL`, and `RL_LLM_MODEL`.
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Then open:
+
+- API: `http://127.0.0.1:8000`
+- Dashboard: `http://127.0.0.1:5173`
+
+## Development Loop
+
+This repo is in active development. The fastest useful checks are:
+
+```bash
+make lint
+python -m compileall -q src tests
+```
+
+Useful commands:
+
+```bash
+make dev      # FastAPI with reload
+make lint     # ruff
+make fmt      # ruff fix + format
+rl-train --list
+rl-eval --adapter adapter-y
+rl-replay --list
+```
+
+## Development Options
+
+1. Local development on macOS: ready.
+2. Local development on a single GPU: in progress.
+3. Local or cloud GPU serving with vLLM or SGLang: in progress.
+4. Distributed runs with Ray-compatible scale-out: coming soon.
 
 ## Layout
 
 ```
-src/rl_stack/
+src/
 ├── domain/           # Pure models, contracts, events, pure reward signals
 ├── application/      # Async coordinator + event bus
 ├── infrastructure/   # Policy / env / rewards / store / tools adapters
 ├── interface/api/    # FastAPI + WebSocket
 ├── settings.py       # pydantic-settings, env-driven
-├── logging.py        # structlog with contextvars + event-bus bridge
+├── runtime_logging.py # structlog with contextvars + event-bus bridge
 └── bootstrap.py      # Wiring
 frontend/             # React + TanStack Router, live via /ws/events
 plans/                # Master plan, track plans, agent-agnostic packets
@@ -53,21 +94,22 @@ API: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp server, Anthropic via
 their compat surface. Pick the provider with three env vars:
 
 ```bash
-# OpenAI proper:
-RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-4o-mini
+# OpenAI proper. gpt-5.4-mini is the current cheap+capable default;
+# gpt-4.1-nano is the absolute floor.
+RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-5.4-mini
 
 # Local vLLM (the vllm:* prefix marks it $0 in cost tracking):
 RL_LLM_BASE_URL=http://127.0.0.1:8000/v1
-RL_LLM_MODEL=vllm:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_MODEL=vllm:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
-RL_LLM_MODEL=ollama:qwen2.5:7b
+RL_LLM_MODEL=ollama:qwen3:8b
 
 # SGLang (drop-in OpenAI-compat; the sglang:* prefix marks it $0):
 RL_LLM_BASE_URL=http://127.0.0.1:30000/v1
-RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct
+RL_LLM_MODEL=sglang:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
 # Anthropic via OpenAI-compat:
@@ -98,7 +140,7 @@ make dev
 # Real GRPO-lite LoRA training
 pip install -e '.[train]'
 RL_TRAINER_BACKEND=grpo \
-RL_GRPO_BASE_MODEL=Qwen/Qwen2.5-0.5B-Instruct \
+RL_GRPO_BASE_MODEL=Qwen/Qwen3-0.6B \
     make dev
 
 # Trigger a training run from completed rollouts
@@ -121,7 +163,7 @@ swapping in vLLM, SGLang, or Ollama is two env vars:
 
 ```bash
 # vLLM hosting Qwen with LoRA mounting:
-vllm serve Qwen/Qwen2.5-7B-Instruct --enable-lora \
+vllm serve Qwen/Qwen3-8B --enable-lora \
     --lora-modules adapter-aaa=./artifacts/adapters/adapter-aaa
 RL_POLICY_BACKEND=openai \
 RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
@@ -129,7 +171,7 @@ RL_LLM_MODEL=vllm:adapter-aaa \
     make dev
 
 # SGLang (RadixAttention prefix caching speeds up multi-turn rollouts):
-SGLANG_MODEL=Qwen/Qwen2.5-7B-Instruct \
+SGLANG_MODEL=Qwen/Qwen3-8B \
 SGLANG_LORA_PATHS="adapter-aaa=./artifacts/adapters/adapter-aaa" \
     scripts/serve_sglang.sh
 RL_POLICY_BACKEND=openai \
@@ -140,7 +182,7 @@ RL_LLM_MODEL=sglang:adapter-aaa \
 
 # Ollama:
 RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
-RL_LLM_MODEL=ollama:qwen2.5:7b \
+RL_LLM_MODEL=ollama:qwen3:8b \
     make dev
 ```
 
@@ -174,7 +216,7 @@ RL_ENV_BACKEND=verifiers \
 RL_VERIFIERS_ENV_ID=vf-math \
 RL_POLICY_BACKEND=openai \
 RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
-RL_LLM_MODEL=sglang:Qwen/Qwen2.5-7B-Instruct \
+RL_LLM_MODEL=sglang:Qwen/Qwen3-8B \
     make dev
 ```
 
@@ -196,33 +238,6 @@ rl-replay --list                                   # registered rubrics
 rl-replay --run run-abc123 --rubric strict-finish-v1
 ```
 
-## Local Startup
-
-Backend:
-
-```bash
-pip install -e '.[dev]'
-cp .env.example .env     # fill RL_LLM_API_KEY when using openai backend
-make dev
-```
-
-Frontend:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Development
-
-```bash
-make test     # pytest
-make lint     # ruff
-make check    # lint + test
-make dev      # uvicorn --reload
-```
-
 ### Smoke test (optional, real API)
 
 ```bash
@@ -232,12 +247,12 @@ RL_SMOKE_API_KEY=sk-... pytest tests/smoke -v
 # Against a local vLLM:
 RL_SMOKE_API_KEY=not-needed \
 RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \
-RL_SMOKE_MODEL=Qwen/Qwen2.5-7B-Instruct \
+RL_SMOKE_MODEL=Qwen/Qwen3-8B \
     pytest tests/smoke -v
 ```
 
-Runs one real LLM rollout against a tiny tempdir repo; designed to cost well
-under a cent per invocation against gpt-4o-mini.
+Runs one real LLM rollout against a tiny tempdir repo; designed to cost
+well under a cent per invocation against gpt-5.4-mini.
 
 ## Configuration
 
@@ -252,3 +267,10 @@ Highlights:
   a trajectory error when exceeded.
 - `RL_DAILY_BUDGET_USD` rolling-window USD cap; new rollouts are refused
   with a `BudgetExceeded` event when reached.
+
+## Credits
+
+This project builds around a few excellent open-source systems:
+
+- <a href="https://github.com/sgl-project/sglang"><img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="32"></a> SGLang for efficient OpenAI-compatible policy serving.
+- <a href="https://github.com/PrimeIntellect-ai/verifiers"><img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="32"></a> Prime Intellect verifiers for environment-driven rollout and reward loops.

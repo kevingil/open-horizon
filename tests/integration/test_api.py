@@ -6,13 +6,31 @@ import json
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from rl_stack.interface.api.app import create_app
-from rl_stack.settings import Settings
+from interface.api.app import create_app
+from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(workspace_root=tmp_path, max_parallel_rollouts=2))
+    # Phase A: default env_backend flipped to "verifiers", which would
+    # try to import the (optional) verifiers package on first rollout.
+    # Tests that drive a real rollout pin to the repo backend so they
+    # stay self-contained and never reach for an unconfigured network.
+    built = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            max_parallel_rollouts=2,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        )
+    )
+    # Phase C: profile dispatch reads the OpenAI client from the
+    # coordinator's _client_cache. Pre-populate the default profile's
+    # entry with a scripted FakeOpenAI so /api/runs tests never dial out.
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
+    return built
 
 
 @pytest.mark.asyncio
@@ -29,9 +47,11 @@ async def test_config_endpoint_reflects_env_backend(app) -> None:
         r = await client.get("/api/config")
         assert r.status_code == 200
         body = r.json()
-        assert body["env_backend"] == "simulated"
-        assert body["policy_backend"] == "static"
-        assert body["policy_name"]
+        assert body["env_backend"] == "repo"
+        # Phase B dropped policy_backend entirely; the OpenAI-compat client
+        # is the only production option now.
+        assert "policy_backend" not in body
+        assert body["policy_name"].startswith("openai:")
         assert body["verifiers_env_id"] is None
 
 

@@ -5,14 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from rl_stack.application.coordinator import LocalRolloutCoordinator
-from rl_stack.application.event_bus import EventBus
-from rl_stack.domain.models import RolloutRequest, RunStatus
-from rl_stack.infrastructure.environment.repo_runner import RepoEnvironmentRunner
-from rl_stack.infrastructure.policy.openai_compat import OpenAICompatPolicyServer
-from rl_stack.infrastructure.rewards.composite import CompositeRewardPipeline
-from rl_stack.infrastructure.store.memory import InMemoryArtifactStore
-from rl_stack.infrastructure.tools.local import LocalToolHarness
+from application.coordinator import LocalRolloutCoordinator
+from application.event_bus import EventBus
+from domain.models import RolloutRequest, RunStatus
+from infrastructure.environment.repo_runner import RepoEnvironmentRunner
+from infrastructure.rewards.composite import CompositeRewardPipeline
+from infrastructure.store.memory import InMemoryArtifactStore
+from infrastructure.tools.local import LocalToolHarness
 from tests._fakes.openai_compat import FakeOpenAI, tool_use
 
 
@@ -29,18 +28,19 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
     def make(client: FakeOpenAI) -> LocalRolloutCoordinator:
         bus = EventBus()
         return LocalRolloutCoordinator(
-            environment_runner=RepoEnvironmentRunner(
-                source_root=source_repo,
-                scratch_root=tmp_path / "scratch",
-            ),
             tool_harness=LocalToolHarness(root=source_repo),
-            policy_server=OpenAICompatPolicyServer(client=client, model="gpt-4o-mini"),
             reward_pipeline=CompositeRewardPipeline(),
             artifact_store=InMemoryArtifactStore(),
             event_bus=bus,
             workspace_root=source_repo,
             max_parallel=1,
             max_tokens_per_run=10_000,
+            repo_runner=RepoEnvironmentRunner(
+                source_root=source_repo,
+                scratch_root=tmp_path / "scratch",
+            ),
+            policy_client=client,  # type: ignore[arg-type]
+            policy_model="gpt-5.4-mini",
         )
 
     return make

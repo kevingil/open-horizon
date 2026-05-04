@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rl_stack.domain.pricing import estimate_cost_usd
+from domain.pricing import estimate_cost_usd
 
 
 def test_haiku_cost_matches_published_rate() -> None:
@@ -11,8 +11,31 @@ def test_haiku_cost_matches_published_rate() -> None:
     assert cost == 6.0
 
 
-def test_gpt_4o_mini_cost_matches_published_rate() -> None:
-    # 1M input + 1M output against gpt-4o-mini: $0.15 + $0.60.
+def test_opus_4_7_uses_2026_pricing() -> None:
+    # Opus 4.7 dropped to $5 / $25 in early 2026; the long-context
+    # surcharge tier was retired at the same time.
+    cost = estimate_cost_usd(
+        "claude-opus-4-7", input_tokens=1_000_000, output_tokens=1_000_000,
+    )
+    assert cost == 30.0
+
+
+def test_gpt_5_4_mini_cost_matches_published_rate() -> None:
+    # 1M input + 1M output against gpt-5.4-mini: $0.75 + $4.50.
+    cost = estimate_cost_usd(
+        "gpt-5.4-mini", input_tokens=1_000_000, output_tokens=1_000_000,
+    )
+    assert cost == 5.25
+
+
+def test_gpt_4_1_nano_is_cheapest_openai_tier() -> None:
+    nano = estimate_cost_usd("gpt-4.1-nano", input_tokens=1_000_000)
+    mini = estimate_cost_usd("gpt-5.4-mini", input_tokens=1_000_000)
+    assert nano < mini
+
+
+def test_gpt_4o_mini_legacy_pricing_still_resolves() -> None:
+    # Legacy entry retained so re-scoring historical runs stays accurate.
     cost = estimate_cost_usd(
         "gpt-4o-mini", input_tokens=1_000_000, output_tokens=1_000_000,
     )
@@ -27,9 +50,9 @@ def test_cache_read_is_much_cheaper() -> None:
 
 def test_self_hosted_prefixes_cost_zero() -> None:
     for model in (
-        "vllm:Qwen/Qwen2.5-7B",
-        "sglang:Qwen/Qwen2.5-7B-Instruct",
-        "ollama:qwen2.5:7b",
+        "vllm:Qwen/Qwen3-8B",
+        "sglang:Qwen/Qwen3-8B",
+        "ollama:qwen3:8b",
         "local:my-adapter",
     ):
         assert estimate_cost_usd(model, input_tokens=10_000_000) == 0.0
