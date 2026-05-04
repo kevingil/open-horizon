@@ -36,7 +36,6 @@ async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
     from application.event_bus import EventBus
     from domain.models import RolloutRequest, RunStatus
     from infrastructure.environment.repo_runner import RepoEnvironmentRunner
-    from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
     from infrastructure.rewards.composite import CompositeRewardPipeline
     from infrastructure.store.sqlite import SqliteArtifactStore
     from infrastructure.tools.local import LocalToolHarness
@@ -47,11 +46,6 @@ async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
 
     coord = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=source),
-        policy_server=OpenAICompatPolicyServer(
-            client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
-            model=SMOKE_MODEL,
-            max_output_tokens=512,
-        ),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=SqliteArtifactStore(path=tmp_path / "runs.db"),
         event_bus=EventBus(),
@@ -61,6 +55,9 @@ async def test_real_llm_rollout_completes(tmp_path: Path) -> None:
         repo_runner=RepoEnvironmentRunner(
             source_root=source, scratch_root=tmp_path / "scratch",
         ),
+        policy_client=OpenAI(api_key=SMOKE_KEY, base_url=SMOKE_BASE_URL),
+        policy_model=SMOKE_MODEL,
+        policy_max_output_tokens=512,
     )
     detail = await coord.start_rollout(
         RolloutRequest(

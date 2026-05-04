@@ -27,7 +27,6 @@ from domain.models import (
 from infrastructure.environment.verifiers_runner import (
     VerifiersRolloutOutcome,
 )
-from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.heuristic import HeuristicRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
@@ -83,7 +82,6 @@ def _build_outcome(task_id: str = "task-x") -> VerifiersRolloutOutcome:
 def _make_coordinator(tmp_path: Path, runner: _FakeVerifiersRunner) -> LocalRolloutCoordinator:
     return LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=HeuristicRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=EventBus(),

@@ -36,7 +36,6 @@ async def test_one_verifiers_rollout_via_sglang(tmp_path: Path) -> None:
     from infrastructure.environment.verifiers_runner import (
         VerifiersRolloutRunner,
     )
-    from infrastructure.policy.static import StaticPolicyServer
     from infrastructure.rewards.composite import CompositeRewardPipeline
     from infrastructure.store.memory import InMemoryArtifactStore
     from infrastructure.tools.local import LocalToolHarness
@@ -51,7 +50,6 @@ async def test_one_verifiers_rollout_via_sglang(tmp_path: Path) -> None:
     )
     coord = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=EventBus(),

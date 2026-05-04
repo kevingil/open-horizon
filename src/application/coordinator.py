@@ -4,14 +4,13 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import structlog
 
 from domain.contracts import (
     ArtifactStore,
-    PolicyServer,
     RewardPipeline,
     RolloutCoordinator,
     ToolHarness,
@@ -22,6 +21,7 @@ if TYPE_CHECKING:
     from infrastructure.environment.verifiers_runner import (
         VerifiersRolloutRunner,
     )
+    from infrastructure.policy.repo_loop import OpenAILike
 from domain.events import (
     BudgetExceeded,
     ProgressTicked,
@@ -42,7 +42,6 @@ from domain.models import (
     TaskSpec,
     ToolPermission,
     TrajectoryRecord,
-    TrajectoryStep,
     WorkerRecord,
     WorkerStatus,
 )
@@ -55,7 +54,6 @@ log = structlog.get_logger(__name__)
 @dataclass
 class LocalRolloutCoordinator(RolloutCoordinator):
     tool_harness: ToolHarness
-    policy_server: PolicyServer
     reward_pipeline: RewardPipeline
     artifact_store: ArtifactStore
     event_bus: EventBus
@@ -69,12 +67,18 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     #   returns a fully scored State. Production path for long-horizon
     #   agentic envs (vf-math, rlm, opencode/*).
     # - repo_runner: in-house tool-call loop against a sandboxed tempdir
-    #   snapshot of a real git checkout. The path verifiers can't replace
-    #   ("agent fixes a real bug in this checkout"). PolicyServer drives
-    #   the loop turn-by-turn against this runner.
+    #   snapshot of a real git checkout. Driven by run_repo_rollout
+    #   against the OpenAI client below.
     # Coordinator raises if neither is set when start_rollout is called.
     external_rollout_runner: VerifiersRolloutRunner | None = None
     repo_runner: RepoEnvironmentRunner | None = None
+    # Inputs to run_repo_rollout when the repo path is taken. Only
+    # required when repo_runner is set.
+    policy_client: OpenAILike | None = None
+    policy_model: str = "gpt-5.4-mini"
+    policy_max_output_tokens: int = 2048
+    policy_max_retries: int = 3
+    policy_extra_body: dict[str, Any] = field(default_factory=dict)
     _semaphore: asyncio.Semaphore = field(init=False)
     _cancelled: set[str] = field(init=False, default_factory=set)
 
@@ -96,10 +100,8 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     async def bootstrap(self):
         """No-op startup hook: returns the current dashboard.
 
-        Previously seeded a couple of demo rollouts for an empty
-        dashboard, but that required a no-op SimulatedEnvironmentRunner
-        which we deleted in Phase A. Real demo content now comes from
-        the user actually issuing a rollout against a configured backend.
+        Phase A removed the seed rollouts that lived here; demo content
+        now comes from real rollouts against a configured backend.
         """
         return self.artifact_store.dashboard()
 
@@ -126,7 +128,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         )
         manifest = RunManifest(
             id=run_id,
-            model_id=self.policy_server.policy_name(),
+            model_id=self._resolve_model_id(),
             adapter_id=request.adapter_id,
             dataset_slice="bootstrap",
             infra_target=request.infra_target,
@@ -162,6 +164,11 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         log.warning("rollout.rejected.budget", spent=spent, cap=self.daily_budget_usd)
         return True
 
+    def _resolve_model_id(self) -> str:
+        if self.external_rollout_runner is not None:
+            return self.external_rollout_runner.policy_name()
+        return f"openai:{self.policy_model}"
+
     async def _execute(self, request: RolloutRequest, run_id: str) -> RunDetail:
         now = datetime.now(UTC)
         task_id = f"task-{uuid4().hex[:8]}"
@@ -180,24 +187,17 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 success_criteria=request.success_criteria or ["manual review"],
             )
             external = self.external_rollout_runner
-            if external is None:
-                if self.repo_runner is None:
-                    raise RuntimeError(
-                        "LocalRolloutCoordinator needs either an "
-                        "external_rollout_runner (verifiers) or a "
-                        "repo_runner; neither was provided."
-                    )
-                self.repo_runner.create_task(task)
-                if hasattr(self.policy_server, "begin_task"):
-                    self.policy_server.begin_task(task)
+            repo_runner = self.repo_runner
+            if external is None and repo_runner is None:
+                raise RuntimeError(
+                    "LocalRolloutCoordinator needs either an "
+                    "external_rollout_runner (verifiers) or a "
+                    "repo_runner; neither was provided."
+                )
 
-            model_id = (
-                external.policy_name() if external is not None
-                else self.policy_server.policy_name()
-            )
             manifest = RunManifest(
                 id=run_id,
-                model_id=model_id,
+                model_id=self._resolve_model_id(),
                 adapter_id=request.adapter_id,
                 dataset_slice="bootstrap",
                 infra_target=request.infra_target,
@@ -218,55 +218,10 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                     return await self._execute_external(
                         external, task, request, run_id, manifest,
                     )
-                steps, trajectory = await self._run_steps(task, request, run_id)
-                cancelled = "cancelled" in trajectory.errors
-                reward = self.reward_pipeline.score_trajectory(task, trajectory)
-                cost = self._cost_for(task.id)
-                await self.event_bus.publish(
-                    RewardComputed(
-                        run_id=run_id,
-                        terminal_reward=reward.terminal_reward,
-                        provenance=reward.provenance,
-                        audit_flags=reward.audit_flags,
-                    )
+                assert repo_runner is not None
+                return await self._execute_repo(
+                    repo_runner, task, request, run_id, manifest,
                 )
-                final_status = RunStatus.failed if cancelled else RunStatus.completed
-                manifest = manifest.model_copy(
-                    update={
-                        "status": final_status,
-                        "updated_at": datetime.now(UTC),
-                        "estimated_cost_usd": cost if cost > 0 else manifest.estimated_cost_usd,
-                    },
-                )
-                detail = RunDetail(
-                    manifest=manifest,
-                    task=task,
-                    trajectory=trajectory,
-                    reward=reward,
-                    artifacts=_default_artifacts(run_id),
-                )
-                self.artifact_store.save_run(detail)
-                worker_status = WorkerStatus.failed if cancelled else WorkerStatus.idle
-                worker_detail = "Rollout cancelled." if cancelled else "Rollout finished; worker idle."
-                await self._publish_worker(
-                    "worker-rollout-local", "rollout", worker_status, run_id, worker_detail,
-                )
-                if cancelled:
-                    await self.event_bus.publish(RolloutCancelled(run_id=run_id))
-                    log.info("rollout.cancelled", steps=len(steps))
-                else:
-                    await self._publish_worker(
-                        "worker-reward-local", "reward", WorkerStatus.idle, run_id,
-                        "Reward pipeline is available for replay.",
-                    )
-                    await self.event_bus.publish(RolloutCompleted(run_id=run_id, detail=detail))
-                    log.info(
-                        "rollout.completed",
-                        terminal_reward=reward.terminal_reward,
-                        steps=len(steps),
-                    )
-                self._cancelled.discard(run_id)
-                return detail
             except Exception as exc:
                 log.exception("rollout.failed")
                 failed_manifest = manifest.model_copy(
@@ -307,10 +262,10 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         run_id: str,
         manifest: RunManifest,
     ) -> RunDetail:
-        """Run a rollout where an external framework (verifiers) owns the
-        per-step loop. Skips CompositeRewardPipeline because verifiers' rubric
-        already produced the reward; persists everything via the same store
-        and emits the same lifecycle events as the in-house path."""
+        """Run a rollout where verifiers owns the multi-turn loop. Skips
+        CompositeRewardPipeline because verifiers' rubric already produced
+        the reward; persists everything via the same store and emits the
+        same lifecycle events as the repo path."""
         if run_id in self._cancelled:
             self._cancelled.discard(run_id)
             cancelled_traj = TrajectoryRecord(
@@ -422,83 +377,118 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         )
         return detail
 
-    async def _run_steps(
-        self, task: TaskSpec, request: RolloutRequest, run_id: str,
-    ) -> tuple[list[TrajectoryStep], TrajectoryRecord]:
-        # Only the in-house repo path reaches here; the external runner
-        # branch returns from _execute_external before we ever get called.
-        assert self.repo_runner is not None
-        steps: list[TrajectoryStep] = []
-        context: list[str] = []
-        errors: list[str] = []
-        for index in range(request.horizon):
-            if run_id in self._cancelled:
-                errors.append("cancelled")
-                break
+    async def _execute_repo(
+        self,
+        repo_runner: RepoEnvironmentRunner,
+        task: TaskSpec,
+        request: RolloutRequest,
+        run_id: str,
+        manifest: RunManifest,
+    ) -> RunDetail:
+        """Drive a per-turn OpenAI tool-call loop against a sandboxed repo
+        snapshot via run_repo_rollout. Reward comes from the in-house
+        CompositeRewardPipeline (no external rubric on this path)."""
+        from infrastructure.policy.repo_loop import run_repo_rollout
 
-            action = self.policy_server.generate_action(task, context)
-            observation = self.repo_runner.step(task.id, action)
-            self.tool_harness.record_command(action)
+        if self.policy_client is None:
+            raise RuntimeError(
+                "repo_runner is set but policy_client is not. The repo "
+                "path drives an OpenAI-compat client through "
+                "run_repo_rollout; build one in bootstrap or pass it "
+                "explicitly when constructing the coordinator."
+            )
 
-            action_step = TrajectoryStep(
-                index=index * 2, actor="policy", kind="action", content=action,
-            )
-            obs_step = TrajectoryStep(
-                index=index * 2 + 1, actor="environment", kind="observation", content=observation,
-            )
-            steps.extend([action_step, obs_step])
-            await self.event_bus.publish(StepRecorded(run_id=run_id, step=action_step))
-            await self.event_bus.publish(StepRecorded(run_id=run_id, step=obs_step))
+        async def _on_step(step) -> None:
+            await self.event_bus.publish(StepRecorded(run_id=run_id, step=step))
+
+        async def _on_progress(turn: int, tokens: int, cost: float, tool: str | None) -> None:
             await self.event_bus.publish(
                 ProgressTicked(
+                    run_id=run_id, step_index=turn, tool=tool,
+                    tokens=tokens, cost_usd=cost,
+                ),
+            )
+
+        outcome = await run_repo_rollout(
+            client=self.policy_client,
+            model=self.policy_model,
+            task=task,
+            repo_runner=repo_runner,
+            record_command=self.tool_harness.record_command,
+            horizon=request.horizon,
+            max_tokens_per_run=self.max_tokens_per_run,
+            max_output_tokens=self.policy_max_output_tokens,
+            max_retries=self.policy_max_retries,
+            extra_body=self.policy_extra_body,
+            on_step=_on_step,
+            on_progress=_on_progress,
+            is_cancelled=lambda: run_id in self._cancelled,
+        )
+
+        cancelled = outcome.cancelled
+        token_overflow = outcome.token_overflow
+        reward = self.reward_pipeline.score_trajectory(task, outcome.trajectory)
+        await self.event_bus.publish(
+            RewardComputed(
+                run_id=run_id,
+                terminal_reward=reward.terminal_reward,
+                provenance=reward.provenance,
+                audit_flags=reward.audit_flags,
+            )
+        )
+        final_status = RunStatus.failed if (cancelled or token_overflow) else RunStatus.completed
+        manifest = manifest.model_copy(
+            update={
+                "status": final_status,
+                "updated_at": datetime.now(UTC),
+                "estimated_cost_usd": (
+                    outcome.cost_usd if outcome.cost_usd > 0 else manifest.estimated_cost_usd
+                ),
+            },
+        )
+        detail = RunDetail(
+            manifest=manifest,
+            task=task,
+            trajectory=outcome.trajectory,
+            reward=reward,
+            artifacts=_default_artifacts(run_id),
+        )
+        self.artifact_store.save_run(detail)
+        if cancelled:
+            await self._publish_worker(
+                "worker-rollout-local", "rollout", WorkerStatus.failed, run_id,
+                "Rollout cancelled.",
+            )
+            await self.event_bus.publish(RolloutCancelled(run_id=run_id))
+            log.info("rollout.cancelled", steps=len(outcome.steps))
+        elif token_overflow:
+            await self._publish_worker(
+                "worker-rollout-local", "rollout", WorkerStatus.failed, run_id,
+                f"repo rollout exceeded token budget ({outcome.total_tokens}).",
+            )
+            await self.event_bus.publish(
+                RolloutFailed(
                     run_id=run_id,
-                    step_index=index,
-                    tool=_tool_from(action),
-                    tokens=self._tokens_for(task.id),
-                    cost_usd=self._cost_for(task.id),
+                    error=f"token budget exceeded: {outcome.total_tokens}",
                 )
             )
-            context.append(observation)
-            await asyncio.sleep(0)
-
-            if run_id in self._cancelled:
-                errors.append("cancelled")
-                break
-            if _is_finish(action):
-                break
-
-            tokens = self._tokens_for(task.id)
-            if tokens > self.max_tokens_per_run:
-                errors.append(f"token budget exceeded: {tokens} > {self.max_tokens_per_run}")
-                break
-
-        trajectory = TrajectoryRecord(
-            id=f"traj-{uuid4().hex[:8]}",
-            task_id=task.id,
-            steps=steps,
-            summaries=[],
-            timings_ms={},
-            errors=errors,
-        )
-        return steps, trajectory
-
-    def _tokens_for(self, task_id: str) -> int:
-        fn = getattr(self.policy_server, "total_tokens", None)
-        if fn is None:
-            return 0
-        try:
-            return int(fn(task_id))
-        except Exception:
-            return 0
-
-    def _cost_for(self, task_id: str) -> float:
-        fn = getattr(self.policy_server, "cumulative_cost_usd", None)
-        if fn is None:
-            return 0.0
-        try:
-            return float(fn(task_id))
-        except Exception:
-            return 0.0
+        else:
+            await self._publish_worker(
+                "worker-rollout-local", "rollout", WorkerStatus.idle, run_id,
+                "Rollout finished; worker idle.",
+            )
+            await self._publish_worker(
+                "worker-reward-local", "reward", WorkerStatus.idle, run_id,
+                "Reward pipeline is available for replay.",
+            )
+            await self.event_bus.publish(RolloutCompleted(run_id=run_id, detail=detail))
+            log.info(
+                "rollout.completed",
+                terminal_reward=reward.terminal_reward,
+                steps=len(outcome.steps),
+            )
+        self._cancelled.discard(run_id)
+        return detail
 
     async def _publish_worker(
         self, worker_id: str, role: str, status: WorkerStatus, run_id: str | None, detail: str,
@@ -509,32 +499,6 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         if hasattr(self.artifact_store, "set_workers"):
             self.artifact_store.set_workers(list(existing.values()))
         await self.event_bus.publish(WorkerUpdated(run_id=run_id, worker=worker))
-
-
-def _is_finish(action: str) -> bool:
-    payload = _maybe_json(action)
-    if payload is None:
-        return False
-    name = payload.get("tool") or payload.get("name")
-    return name == "finish"
-
-
-def _tool_from(action: str) -> str | None:
-    payload = _maybe_json(action)
-    if payload is None:
-        return None
-    value = payload.get("tool") or payload.get("name")
-    return value if isinstance(value, str) else None
-
-
-def _maybe_json(action: str) -> dict | None:
-    import json as _json
-
-    try:
-        payload = _json.loads(action)
-    except _json.JSONDecodeError:
-        return None
-    return payload if isinstance(payload, dict) else None
 
 
 def _default_artifacts(run_id: str) -> list[ArtifactRecord]:

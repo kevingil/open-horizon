@@ -9,7 +9,6 @@ from application.coordinator import LocalRolloutCoordinator
 from application.event_bus import EventBus
 from domain.models import RolloutRequest, RunStatus
 from infrastructure.environment.repo_runner import RepoEnvironmentRunner
-from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
@@ -30,7 +29,6 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
         bus = EventBus()
         return LocalRolloutCoordinator(
             tool_harness=LocalToolHarness(root=source_repo),
-            policy_server=OpenAICompatPolicyServer(client=client, model="gpt-5.4-mini"),
             reward_pipeline=CompositeRewardPipeline(),
             artifact_store=InMemoryArtifactStore(),
             event_bus=bus,
@@ -41,6 +39,8 @@ def coordinator_factory(source_repo: Path, tmp_path: Path):
                 source_root=source_repo,
                 scratch_root=tmp_path / "scratch",
             ),
+            policy_client=client,  # type: ignore[arg-type]
+            policy_model="gpt-5.4-mini",
         )
 
     return make

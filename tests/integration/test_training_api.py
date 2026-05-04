@@ -8,17 +8,23 @@ from httpx import ASGITransport, AsyncClient
 from domain.models import AdapterRecord
 from interface.api.app import create_app
 from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(
+    built = create_app(
         Settings(
             workspace_root=tmp_path,
             adapters_dir=tmp_path / "adapters",
             artifacts_dir=tmp_path / "artifacts",
+            env_backend="repo",
         )
     )
+    built.state.services.coordinator.policy_client = (
+        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
+    )
+    return built
 
 
 async def _seed_run(client: AsyncClient) -> str:

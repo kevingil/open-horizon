@@ -20,13 +20,12 @@ from domain.models import (
     ToolPermission,
     TrajectoryRecord,
 )
-from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
 from interface.api.app import create_app
 from settings import Settings
-from tests.conftest import _StubRepoRunner
+from tests.conftest import _scripted_repo_loop, _StubRepoRunner
 
 
 def _seed_detail(cost: float, at: datetime) -> RunDetail:
@@ -64,7 +63,6 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
 
     coord = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=bus,
@@ -73,6 +71,8 @@ async def test_coordinator_rejects_rollout_when_cap_reached(tmp_path: Path) -> N
         daily_budget_usd=0.5,
         budget_window_hours=24,
         repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=1),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
 
     captured: list = []
@@ -103,7 +103,6 @@ async def test_coordinator_allows_rollout_when_under_cap(tmp_path: Path) -> None
     store = InMemoryArtifactStore()
     coord = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=EventBus(),
@@ -112,6 +111,8 @@ async def test_coordinator_allows_rollout_when_under_cap(tmp_path: Path) -> None
         daily_budget_usd=10.0,  # well above anything the stub repo runner produces
         budget_window_hours=24,
         repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=1),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
     detail = await coord.start_rollout(
         RolloutRequest(prompt="fine", horizon=2), run_id="run-fine",

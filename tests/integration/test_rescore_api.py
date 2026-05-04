@@ -5,11 +5,24 @@ from httpx import ASGITransport, AsyncClient
 
 from interface.api.app import create_app
 from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
 def app(tmp_path):
-    return create_app(Settings(workspace_root=tmp_path))
+    built = create_app(
+        Settings(
+            workspace_root=tmp_path,
+            env_backend="repo",
+            artifacts_dir=tmp_path / "artifacts",
+        )
+    )
+    # Bootstrap built a real OpenAI client; swap in a fake so the test
+    # never dials out (Phase C will harden this via a collection guard).
+    built.state.services.coordinator.policy_client = (
+        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
+    )
+    return built
 
 
 @pytest.mark.asyncio

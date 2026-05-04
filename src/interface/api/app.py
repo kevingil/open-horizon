@@ -113,11 +113,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runner = services.coordinator.external_rollout_runner
         policy_name = (
             runner.policy_name() if runner is not None
-            else services.coordinator.policy_server.policy_name()
+            else f"openai:{services.coordinator.policy_model}"
         )
         return {
             "env_backend": settings.env_backend,
-            "policy_backend": settings.policy_backend,
             "policy_name": policy_name,
             "trainer_backend": settings.trainer_backend,
             "verifiers_env_id": (

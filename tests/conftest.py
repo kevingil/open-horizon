@@ -9,10 +9,10 @@ from application.coordinator import LocalRolloutCoordinator
 from application.event_bus import EventBus
 from domain.events import DomainEvent
 from domain.models import TaskSpec
-from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.heuristic import HeuristicRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
+from tests._fakes.openai_compat import FakeOpenAI, text, tool_use
 
 
 @dataclass
@@ -37,6 +37,21 @@ class _StubRepoRunner:
         return f"env:{task_id}:{action}"
 
 
+def _scripted_repo_loop(turns: int = 3) -> FakeOpenAI:
+    """FakeOpenAI scripted with N tool-call turns followed by a finish.
+
+    Phase B replaced StaticPolicyServer with run_repo_rollout, which talks
+    to a real OpenAI client. Tests now drive that loop via a FakeOpenAI
+    that scripts deterministic responses; this helper produces the
+    boilerplate sequence that most coordinator tests need.
+    """
+    responses = [
+        tool_use(f"call_{i}", "list_files", {"path": "."}) for i in range(turns)
+    ]
+    responses.append(text("done"))
+    return FakeOpenAI(responses)
+
+
 @pytest.fixture
 def event_bus() -> EventBus:
     return EventBus()
@@ -46,13 +61,14 @@ def event_bus() -> EventBus:
 def coordinator(tmp_path: Path, event_bus: EventBus) -> LocalRolloutCoordinator:
     return LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=HeuristicRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=event_bus,
         workspace_root=tmp_path,
         max_parallel=2,
         repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=3),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
 
 

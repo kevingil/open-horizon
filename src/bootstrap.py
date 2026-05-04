@@ -17,8 +17,6 @@ from infrastructure.adapters.local import LocalAdapterRegistry
 from infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from infrastructure.environment.sandbox import build_sandbox
 from infrastructure.environment.verifiers_runner import VerifiersRolloutRunner
-from infrastructure.policy.openai_compat import OpenAICompatPolicyServer
-from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.store.sqlite import SqliteArtifactStore
@@ -54,14 +52,12 @@ def build_application_services(
     adapter_registry = LocalAdapterRegistry(root=settings.adapters_dir)
     trainer = _build_trainer(settings)
 
-    policy = _build_policy(settings)
-
     repo_runner = _build_repo_runner(settings, root)
     external_runner = _build_external_rollout_runner(settings)
+    policy_client = _build_policy_client(settings) if repo_runner is not None else None
 
     coordinator = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=root),
-        policy_server=policy,
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=store,
         event_bus=bus,
@@ -72,6 +68,10 @@ def build_application_services(
         budget_window_hours=settings.budget_window_hours,
         external_rollout_runner=external_runner,
         repo_runner=repo_runner,
+        policy_client=policy_client,
+        policy_model=settings.llm_model,
+        policy_max_output_tokens=settings.llm_max_output_tokens,
+        policy_max_retries=settings.llm_max_retries,
     )
     training_service = TrainingService(
         trainer=trainer,
@@ -98,26 +98,22 @@ def build_application_services(
     )
 
 
-def _build_policy(settings: Settings):
-    match settings.policy_backend:
-        case "static":
-            return StaticPolicyServer()
-        case "openai":
-            from openai import OpenAI
+def _build_policy_client(settings: Settings):
+    """Build the OpenAI-compat client used by the repo path.
 
-            api_key = (
-                settings.llm_api_key.get_secret_value()
-                if settings.llm_api_key is not None
-                else "not-needed"  # local providers (vLLM, Ollama) don't require a key
-            )
-            return OpenAICompatPolicyServer(
-                client=OpenAI(api_key=api_key, base_url=settings.llm_base_url),
-                model=settings.llm_model,
-                max_output_tokens=settings.llm_max_output_tokens,
-                max_retries=settings.llm_max_retries,
-            )
-        case other:
-            raise ValueError(f"Unsupported policy backend: {other}")
+    The verifiers path builds its own client inside
+    _build_external_rollout_runner; the repo path needs one here so the
+    coordinator can pass it to run_repo_rollout. Local providers
+    (vLLM/SGLang/Ollama) accept a placeholder API key.
+    """
+    from openai import OpenAI
+
+    api_key = (
+        settings.llm_api_key.get_secret_value()
+        if settings.llm_api_key is not None
+        else "not-needed"
+    )
+    return OpenAI(api_key=api_key, base_url=settings.llm_base_url)
 
 
 def _build_repo_runner(settings: Settings, root: Path) -> RepoEnvironmentRunner | None:

@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from interface.api.app import create_app
 from settings import Settings
+from tests.conftest import _scripted_repo_loop
 
 
 @pytest.fixture
@@ -16,7 +17,7 @@ def app(tmp_path):
     # try to import the (optional) verifiers package on first rollout.
     # Tests that drive a real rollout pin to the repo backend so they
     # stay self-contained and never reach for an unconfigured network.
-    return create_app(
+    built = create_app(
         Settings(
             workspace_root=tmp_path,
             max_parallel_rollouts=2,
@@ -24,6 +25,14 @@ def app(tmp_path):
             artifacts_dir=tmp_path / "artifacts",
         )
     )
+    # Bootstrap built a real OpenAI client because env_backend=repo
+    # provisions one for run_repo_rollout. Swap in a scripted FakeOpenAI
+    # so /api/runs e2e tests never dial out (Phase C will harden this
+    # via a pytest collection guard).
+    built.state.services.coordinator.policy_client = (
+        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
+    )
+    return built
 
 
 @pytest.mark.asyncio
@@ -41,10 +50,10 @@ async def test_config_endpoint_reflects_env_backend(app) -> None:
         assert r.status_code == 200
         body = r.json()
         assert body["env_backend"] == "repo"
-        assert body["policy_backend"] == "static"
-        assert body["policy_name"]
-        # verifiers env_id is only populated when the verifiers backend is
-        # active; the test fixture pins env_backend=repo so it stays None.
+        # Phase B dropped policy_backend entirely; the OpenAI-compat client
+        # is the only production option now.
+        assert "policy_backend" not in body
+        assert body["policy_name"].startswith("openai:")
         assert body["verifiers_env_id"] is None
 
 

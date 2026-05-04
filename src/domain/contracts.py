@@ -31,14 +31,6 @@ class ToolHarness(ABC):
     def record_command(self, command: str) -> str: ...
 
 
-class PolicyServer(ABC):
-    @abstractmethod
-    def policy_name(self) -> str: ...
-
-    @abstractmethod
-    def generate_action(self, task: TaskSpec, context: list[str]) -> str: ...
-
-
 class RewardPipeline(ABC):
     @abstractmethod
     def score_trajectory(self, task: TaskSpec, trajectory: TrajectoryRecord) -> RewardRecord: ...

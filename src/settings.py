@@ -21,12 +21,11 @@ class Settings(BaseSettings):
     workspace_root: Path = Field(default=Path("."))
     artifacts_dir: Path = Field(default=Path("./artifacts"))
 
-    # Policy backend: "static" (dev stub) or "openai" (any OpenAI-compatible
-    # endpoint: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp, ...).
-    policy_backend: str = Field(default="static")
-
     # OpenAI-compat policy settings. base_url + api_key + model is the
     # "what server, what model" triple that selects a provider.
+    # Phase B removed RL_POLICY_BACKEND; the openai-compat client is now
+    # the only production option (used by both the verifiers path and
+    # the repo path), and tests inject FakeOpenAI directly.
     llm_api_key: SecretStr | None = Field(default=None)
     llm_base_url: str = Field(default="https://api.openai.com/v1")
     llm_model: str = Field(default="gpt-5.4-mini")

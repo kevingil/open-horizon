@@ -10,12 +10,11 @@ from application.eval import DEFAULT_EVAL_TASKS, EvalHarness, EvalTask
 from application.event_bus import EventBus
 from domain.models import AdapterRecord
 from infrastructure.adapters.local import LocalAdapterRegistry
-from infrastructure.policy.static import StaticPolicyServer
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.tools.local import LocalToolHarness
 from infrastructure.training.memory_store import InMemoryTrainingStore
-from tests.conftest import _StubRepoRunner
+from tests.conftest import _scripted_repo_loop, _StubRepoRunner
 
 
 @pytest.fixture
@@ -23,13 +22,14 @@ def harness(tmp_path: Path):
     bus = EventBus()
     coord = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=tmp_path),
-        policy_server=StaticPolicyServer(),
         reward_pipeline=CompositeRewardPipeline(),
         artifact_store=InMemoryArtifactStore(),
         event_bus=bus,
         workspace_root=tmp_path,
         max_parallel=1,
         repo_runner=_StubRepoRunner(),  # type: ignore[arg-type]
+        policy_client=_scripted_repo_loop(turns=2),  # type: ignore[arg-type]
+        policy_model="gpt-5.4-mini",
     )
     registry = LocalAdapterRegistry(root=tmp_path / "adapters")
     registry.register(
