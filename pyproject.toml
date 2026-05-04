@@ -41,6 +41,13 @@ train = [
 envs = [
   "verifiers>=0.1.11,<0.2",
 ]
+# prime-rl trainer backend (RL_TRAINER_BACKEND=prime-rl). Installs the
+# CLI we shell out to plus the heavy GPU stack it needs at training
+# time. Requires the [train] extras above; install with:
+#   pip install -e '.[train,prime-rl]'
+prime-rl = [
+  "prime-rl",
+]
 
 [project.scripts]
 rl-replay = "interface.cli.replay:main"

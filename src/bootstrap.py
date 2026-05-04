@@ -54,11 +54,11 @@ def build_application_services(
     store = _build_store(settings)
     training_store = _build_training_store(settings)
     adapter_registry = LocalAdapterRegistry(root=settings.adapters_dir)
-    trainer = _build_trainer(settings)
 
     repo_runner = _build_repo_runner(settings, root)
     profiles = _build_profiles(settings)
     round_scheduler = _build_round_scheduler(settings)
+    trainer = _build_trainer(settings, store=store)
 
     coordinator = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=root),
@@ -176,7 +176,7 @@ def _build_training_store(settings: Settings) -> TrainingStore:
             raise ValueError(f"Unsupported training store backend: {other}")
 
 
-def _build_trainer(settings: Settings) -> Trainer:
+def _build_trainer(settings: Settings, *, store: ArtifactStore) -> Trainer:
     match settings.trainer_backend:
         case "stub":
             return StubTrainer(default_step_delay_s=settings.train_step_delay_s)
@@ -185,5 +185,15 @@ def _build_trainer(settings: Settings) -> Trainer:
             from infrastructure.training.grpo import GrpoTrainer
 
             return GrpoTrainer(base_model=settings.grpo_base_model)
+        case "prime-rl":
+            # Import lazily; the [prime-rl] extra brings in the package.
+            from infrastructure.training.prime_rl import PrimeRLTrainer
+
+            return PrimeRLTrainer(
+                artifact_store=store,
+                base_model=settings.prime_rl_base_model,
+                cli_path=settings.prime_rl_cli,
+                config_template_path=settings.prime_rl_config_template,
+            )
         case other:
             raise ValueError(f"Unsupported trainer backend: {other}")

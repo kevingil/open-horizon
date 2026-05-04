@@ -125,12 +125,21 @@ class Settings(BaseSettings):
     scaling_mode: str = Field(default="linear")
 
     # Training
-    trainer_backend: str = Field(default="stub")  # "stub" (default) or "grpo"
+    # "stub" (default), "grpo" (in-tree LoRA), or "prime-rl" (subprocess
+    # to the prime-rl CLI; native pair with verifiers envs).
+    trainer_backend: str = Field(default="stub")
     training_store_backend: str = Field(default="memory")  # "memory" or "sqlite"
     adapters_dir: Path = Field(default=Path("./artifacts/adapters"))
     train_step_delay_s: float = Field(default=0.0, ge=0)
     # GRPO trainer (only consulted when RL_TRAINER_BACKEND=grpo).
     grpo_base_model: str = Field(default="Qwen/Qwen3-0.6B")
+
+    # prime-rl trainer (only consulted when RL_TRAINER_BACKEND=prime-rl).
+    prime_rl_base_model: str = Field(default="Qwen/Qwen3-8B")
+    prime_rl_cli: str = Field(default="prime-rl")
+    # Optional path to a TOML template the trainer fills in per run.
+    # Empty = trainer emits a minimal flat-key default config instead.
+    prime_rl_config_template: Path | None = Field(default=None)
 
     # SGLang admin endpoints. When sglang_admin_url is set and
     # sglang_autoload_lora is true, every published adapter is hot-loaded
