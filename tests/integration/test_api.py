@@ -25,13 +25,11 @@ def app(tmp_path):
             artifacts_dir=tmp_path / "artifacts",
         )
     )
-    # Bootstrap built a real OpenAI client because env_backend=repo
-    # provisions one for run_repo_rollout. Swap in a scripted FakeOpenAI
-    # so /api/runs e2e tests never dial out (Phase C will harden this
-    # via a pytest collection guard).
-    built.state.services.coordinator.policy_client = (
-        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
-    )
+    # Phase C: profile dispatch reads the OpenAI client from the
+    # coordinator's _client_cache. Pre-populate the default profile's
+    # entry with a scripted FakeOpenAI so /api/runs tests never dial out.
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
     return built
 
 

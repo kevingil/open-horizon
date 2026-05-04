@@ -1,10 +1,42 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class PolicyProfile(BaseModel):
+    """A named (base_url, api_key, model) triple a rollout can request.
+
+    Per-run inference selection without per-run free-form configs:
+    profiles are defined once at startup and rollouts opt into one by
+    name (`RolloutRequest.policy_profile`). Adapter availability and
+    paid-provider gating both happen at request time, never mid-rollout.
+
+    `routes_to` decides whether the rollout uses the verifiers loop
+    (long-horizon agentic envs) or the in-house repo loop (sandboxed
+    shell against a snapshotted git checkout).
+    """
+
+    backend: Literal["openai-compat"] = "openai-compat"
+    base_url: str
+    model: str
+    # api_key resolution order: literal `api_key` (discouraged) ->
+    # os.environ[api_key_env] -> "not-needed" (for local providers).
+    api_key_env: str | None = None
+    api_key: SecretStr | None = None
+    extra_body: dict[str, Any] = Field(default_factory=dict)
+    routes_to: Literal["verifiers", "repo"] = "verifiers"
+    # Repo-path knobs (consulted when routes_to="repo").
+    max_output_tokens: int = Field(default=2048, ge=1)
+    max_retries: int = Field(default=3, ge=0)
+    # Verifiers-path knobs (consulted when routes_to="verifiers").
+    env_id: str = "vf-math"
+    env_args: dict[str, Any] = Field(default_factory=dict)
+    max_concurrent: int = Field(default=4, ge=1)
+    rollout_timeout_s: float | None = None
 
 
 class Settings(BaseSettings):
@@ -31,6 +63,15 @@ class Settings(BaseSettings):
     llm_model: str = Field(default="gpt-5.4-mini")
     llm_max_output_tokens: int = Field(default=2048, ge=1)
     llm_max_retries: int = Field(default=3, ge=0)
+
+    # Named policy profiles. Empty = legacy single-default mode (the
+    # llm_* fields above synthesize a "default" profile at bootstrap).
+    # When set, RolloutRequest.policy_profile picks one by name; unknown
+    # profiles get rejected at request time, never mid-rollout.
+    # JSON-encoded in the env, e.g.
+    #   RL_POLICY_PROFILES='{"oai": {"base_url": "https://api.openai.com/v1", "model": "gpt-5.4-mini", "api_key_env": "OPENAI_API_KEY"}}'
+    policy_profiles: dict[str, PolicyProfile] = Field(default_factory=dict)
+    default_policy_profile: str = Field(default="default")
 
     # Artifact store backend: "memory" or "sqlite".
     store_backend: str = Field(default="memory")

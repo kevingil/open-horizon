@@ -21,9 +21,8 @@ def app(tmp_path):
             env_backend="repo",
         )
     )
-    built.state.services.coordinator.policy_client = (
-        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
-    )
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
     return built
 
 

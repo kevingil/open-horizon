@@ -16,7 +16,6 @@ from domain.contracts import (
 from infrastructure.adapters.local import LocalAdapterRegistry
 from infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from infrastructure.environment.sandbox import build_sandbox
-from infrastructure.environment.verifiers_runner import VerifiersRolloutRunner
 from infrastructure.rewards.composite import CompositeRewardPipeline
 from infrastructure.store.memory import InMemoryArtifactStore
 from infrastructure.store.sqlite import SqliteArtifactStore
@@ -24,7 +23,7 @@ from infrastructure.tools.local import LocalToolHarness
 from infrastructure.training.memory_store import InMemoryTrainingStore
 from infrastructure.training.sqlite_store import SqliteTrainingStore
 from infrastructure.training.stub import StubTrainer
-from settings import Settings
+from settings import PolicyProfile, Settings
 
 
 @dataclass
@@ -53,8 +52,7 @@ def build_application_services(
     trainer = _build_trainer(settings)
 
     repo_runner = _build_repo_runner(settings, root)
-    external_runner = _build_external_rollout_runner(settings)
-    policy_client = _build_policy_client(settings) if repo_runner is not None else None
+    profiles = _build_profiles(settings)
 
     coordinator = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=root),
@@ -66,12 +64,9 @@ def build_application_services(
         max_tokens_per_run=settings.max_tokens_per_run,
         daily_budget_usd=settings.daily_budget_usd,
         budget_window_hours=settings.budget_window_hours,
-        external_rollout_runner=external_runner,
         repo_runner=repo_runner,
-        policy_client=policy_client,
-        policy_model=settings.llm_model,
-        policy_max_output_tokens=settings.llm_max_output_tokens,
-        policy_max_retries=settings.llm_max_retries,
+        profiles=profiles,
+        default_profile=settings.default_policy_profile,
     )
     training_service = TrainingService(
         trainer=trainer,
@@ -98,24 +93,6 @@ def build_application_services(
     )
 
 
-def _build_policy_client(settings: Settings):
-    """Build the OpenAI-compat client used by the repo path.
-
-    The verifiers path builds its own client inside
-    _build_external_rollout_runner; the repo path needs one here so the
-    coordinator can pass it to run_repo_rollout. Local providers
-    (vLLM/SGLang/Ollama) accept a placeholder API key.
-    """
-    from openai import OpenAI
-
-    api_key = (
-        settings.llm_api_key.get_secret_value()
-        if settings.llm_api_key is not None
-        else "not-needed"
-    )
-    return OpenAI(api_key=api_key, base_url=settings.llm_base_url)
-
-
 def _build_repo_runner(settings: Settings, root: Path) -> RepoEnvironmentRunner | None:
     """Repo path is opt-in: only built when env_backend=repo. The verifiers
     path doesn't need a runner, and we no longer have a no-op simulated
@@ -133,25 +110,30 @@ def _build_repo_runner(settings: Settings, root: Path) -> RepoEnvironmentRunner 
     )
 
 
-def _build_external_rollout_runner(settings: Settings) -> VerifiersRolloutRunner | None:
-    if settings.env_backend != "verifiers":
-        return None
-    from openai import OpenAI
+def _build_profiles(settings: Settings) -> dict[str, PolicyProfile]:
+    """Return the dict of profiles the coordinator will dispatch from.
 
-    api_key = (
-        settings.llm_api_key.get_secret_value()
-        if settings.llm_api_key is not None
-        else "not-needed"
-    )
-    client = OpenAI(api_key=api_key, base_url=settings.llm_base_url)
-    return VerifiersRolloutRunner(
-        client=client,
+    If `settings.policy_profiles` is configured, hand it back unchanged.
+    Otherwise synthesize a single "default" profile from the legacy
+    `llm_*` + `verifiers_*` + `env_backend` fields so existing callers
+    keep working without setting up profiles explicitly.
+    """
+    if settings.policy_profiles:
+        return dict(settings.policy_profiles)
+    routes_to = "verifiers" if settings.env_backend == "verifiers" else "repo"
+    default = PolicyProfile(
+        base_url=settings.llm_base_url,
         model=settings.llm_model,
+        api_key=settings.llm_api_key,
+        routes_to=routes_to,
+        max_output_tokens=settings.llm_max_output_tokens,
+        max_retries=settings.llm_max_retries,
         env_id=settings.verifiers_env_id,
         env_args=settings.verifiers_env_args,
         max_concurrent=settings.verifiers_max_concurrent,
         rollout_timeout_s=settings.verifiers_rollout_timeout_s,
     )
+    return {settings.default_policy_profile: default}
 
 
 def _build_store(settings: Settings) -> ArtifactStore:

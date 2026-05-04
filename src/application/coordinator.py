@@ -15,13 +15,6 @@ from domain.contracts import (
     RolloutCoordinator,
     ToolHarness,
 )
-
-if TYPE_CHECKING:
-    from infrastructure.environment.repo_runner import RepoEnvironmentRunner
-    from infrastructure.environment.verifiers_runner import (
-        VerifiersRolloutRunner,
-    )
-    from infrastructure.policy.repo_loop import OpenAILike
 from domain.events import (
     BudgetExceeded,
     ProgressTicked,
@@ -45,10 +38,26 @@ from domain.models import (
     WorkerRecord,
     WorkerStatus,
 )
+from settings import PolicyProfile
 
 from .event_bus import EventBus
 
+if TYPE_CHECKING:
+    from infrastructure.environment.repo_runner import RepoEnvironmentRunner
+    from infrastructure.environment.verifiers_runner import (
+        VerifiersRolloutRunner,
+    )
+    from infrastructure.policy.repo_loop import OpenAILike
+
 log = structlog.get_logger(__name__)
+
+
+class UnknownPolicyProfile(KeyError):
+    """Raised when a rollout requests a profile not in the configured set.
+
+    Surfaces as a 422 when /api/runs validates the request, never falls
+    through to a mid-rollout failure.
+    """
 
 
 @dataclass
@@ -73,17 +82,55 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     external_rollout_runner: VerifiersRolloutRunner | None = None
     repo_runner: RepoEnvironmentRunner | None = None
     # Inputs to run_repo_rollout when the repo path is taken. Only
-    # required when repo_runner is set.
+    # required when repo_runner is set. Kept as a per-coordinator
+    # default for callers that don't configure named profiles.
     policy_client: OpenAILike | None = None
     policy_model: str = "gpt-5.4-mini"
     policy_max_output_tokens: int = 2048
     policy_max_retries: int = 3
     policy_extra_body: dict[str, Any] = field(default_factory=dict)
+    # Phase C: named policy profiles. Per-rollout selection by name
+    # without per-run free-form configs. When `profiles` is empty the
+    # coordinator synthesizes a single "default" profile from the legacy
+    # fields above so existing callers keep working unchanged.
+    profiles: dict[str, PolicyProfile] = field(default_factory=dict)
+    default_profile: str = "default"
+    _client_cache: dict[str, Any] = field(init=False, default_factory=dict)
+    _verifiers_cache: dict[str, Any] = field(init=False, default_factory=dict)
     _semaphore: asyncio.Semaphore = field(init=False)
     _cancelled: set[str] = field(init=False, default_factory=set)
 
     def __post_init__(self) -> None:
         self._semaphore = asyncio.Semaphore(self.max_parallel)
+        self._synthesize_default_profile()
+
+    def _synthesize_default_profile(self) -> None:
+        """If no profiles were configured, synthesize a "default" from
+        the legacy fields so existing callers keep working unchanged.
+        Tests pre-populate _client_cache / _verifiers_cache; we only
+        synthesize the *spec* and leave the cache to whoever wired it."""
+        if self.profiles:
+            return
+        if self.external_rollout_runner is not None:
+            self.profiles[self.default_profile] = PolicyProfile(
+                base_url="stub://legacy",
+                model=getattr(self.external_rollout_runner, "model", "stub"),
+                routes_to="verifiers",
+                env_id=getattr(self.external_rollout_runner, "env_id", "stub"),
+            )
+            self._verifiers_cache[self.default_profile] = self.external_rollout_runner
+            return
+        if self.repo_runner is not None:
+            self.profiles[self.default_profile] = PolicyProfile(
+                base_url="stub://legacy",
+                model=self.policy_model,
+                routes_to="repo",
+                max_output_tokens=self.policy_max_output_tokens,
+                max_retries=self.policy_max_retries,
+                extra_body=self.policy_extra_body,
+            )
+            if self.policy_client is not None:
+                self._client_cache[self.default_profile] = self.policy_client
 
     def request_cancel(self, run_id: str) -> bool:
         """Flag a run for cancellation. Returns False if the run is already
@@ -128,7 +175,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         )
         manifest = RunManifest(
             id=run_id,
-            model_id=self._resolve_model_id(),
+            model_id=self._resolve_model_id(request),
             adapter_id=request.adapter_id,
             dataset_slice="bootstrap",
             infra_target=request.infra_target,
@@ -164,10 +211,80 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         log.warning("rollout.rejected.budget", spent=spent, cap=self.daily_budget_usd)
         return True
 
-    def _resolve_model_id(self) -> str:
+    def _resolve_profile_name(self, request: RolloutRequest) -> str:
+        return request.policy_profile or self.default_profile
+
+    def _resolve_profile(self, request: RolloutRequest) -> PolicyProfile:
+        name = self._resolve_profile_name(request)
+        if name not in self.profiles:
+            raise UnknownPolicyProfile(
+                f"unknown policy profile: {name!r}. "
+                f"Configured: {sorted(self.profiles)}",
+            )
+        return self.profiles[name]
+
+    def _resolve_model_id(self, request: RolloutRequest | None = None) -> str:
+        if request is not None:
+            try:
+                profile = self._resolve_profile(request)
+            except UnknownPolicyProfile:
+                pass
+            else:
+                if profile.routes_to == "verifiers":
+                    runner = self._get_verifiers_runner(self._resolve_profile_name(request))
+                    return runner.policy_name()
+                return f"openai:{profile.model}"
         if self.external_rollout_runner is not None:
             return self.external_rollout_runner.policy_name()
         return f"openai:{self.policy_model}"
+
+    def _get_client(self, profile_name: str) -> OpenAILike:
+        cached = self._client_cache.get(profile_name)
+        if cached is not None:
+            return cached
+        profile = self.profiles[profile_name]
+        from openai import OpenAI
+
+        api_key = self._resolve_api_key(profile)
+        client = OpenAI(api_key=api_key, base_url=profile.base_url)
+        self._client_cache[profile_name] = client
+        return client
+
+    def _get_verifiers_runner(self, profile_name: str) -> VerifiersRolloutRunner:
+        cached = self._verifiers_cache.get(profile_name)
+        if cached is not None:
+            return cached
+        profile = self.profiles[profile_name]
+        from openai import OpenAI
+
+        from infrastructure.environment.verifiers_runner import (
+            VerifiersRolloutRunner,
+        )
+
+        api_key = self._resolve_api_key(profile)
+        client = OpenAI(api_key=api_key, base_url=profile.base_url)
+        runner = VerifiersRolloutRunner(
+            client=client,
+            model=profile.model,
+            env_id=profile.env_id,
+            env_args=profile.env_args,
+            max_concurrent=profile.max_concurrent,
+            rollout_timeout_s=profile.rollout_timeout_s,
+        )
+        self._verifiers_cache[profile_name] = runner
+        return runner
+
+    @staticmethod
+    def _resolve_api_key(profile: PolicyProfile) -> str:
+        import os
+
+        if profile.api_key is not None:
+            return profile.api_key.get_secret_value()
+        if profile.api_key_env:
+            value = os.environ.get(profile.api_key_env)
+            if value:
+                return value
+        return "not-needed"
 
     async def _execute(self, request: RolloutRequest, run_id: str) -> RunDetail:
         now = datetime.now(UTC)
@@ -186,18 +303,12 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 horizon=request.horizon,
                 success_criteria=request.success_criteria or ["manual review"],
             )
-            external = self.external_rollout_runner
-            repo_runner = self.repo_runner
-            if external is None and repo_runner is None:
-                raise RuntimeError(
-                    "LocalRolloutCoordinator needs either an "
-                    "external_rollout_runner (verifiers) or a "
-                    "repo_runner; neither was provided."
-                )
+            profile = self._resolve_profile(request)
+            profile_name = self._resolve_profile_name(request)
 
             manifest = RunManifest(
                 id=run_id,
-                model_id=self._resolve_model_id(),
+                model_id=self._resolve_model_id(request),
                 adapter_id=request.adapter_id,
                 dataset_slice="bootstrap",
                 infra_target=request.infra_target,
@@ -214,13 +325,19 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
 
             try:
-                if external is not None:
+                if profile.routes_to == "verifiers":
+                    runner = self._get_verifiers_runner(profile_name)
                     return await self._execute_external(
-                        external, task, request, run_id, manifest,
+                        runner, task, request, run_id, manifest,
                     )
-                assert repo_runner is not None
+                if self.repo_runner is None:
+                    raise RuntimeError(
+                        f"profile {profile_name!r} routes to repo but no "
+                        "repo_runner is configured on the coordinator."
+                    )
                 return await self._execute_repo(
-                    repo_runner, task, request, run_id, manifest,
+                    self.repo_runner, task, request, run_id, manifest, profile,
+                    profile_name,
                 )
             except Exception as exc:
                 log.exception("rollout.failed")
@@ -384,19 +501,15 @@ class LocalRolloutCoordinator(RolloutCoordinator):
         request: RolloutRequest,
         run_id: str,
         manifest: RunManifest,
+        profile: PolicyProfile,
+        profile_name: str,
     ) -> RunDetail:
         """Drive a per-turn OpenAI tool-call loop against a sandboxed repo
         snapshot via run_repo_rollout. Reward comes from the in-house
         CompositeRewardPipeline (no external rubric on this path)."""
         from infrastructure.policy.repo_loop import run_repo_rollout
 
-        if self.policy_client is None:
-            raise RuntimeError(
-                "repo_runner is set but policy_client is not. The repo "
-                "path drives an OpenAI-compat client through "
-                "run_repo_rollout; build one in bootstrap or pass it "
-                "explicitly when constructing the coordinator."
-            )
+        client = self._get_client(profile_name)
 
         async def _on_step(step) -> None:
             await self.event_bus.publish(StepRecorded(run_id=run_id, step=step))
@@ -410,16 +523,16 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             )
 
         outcome = await run_repo_rollout(
-            client=self.policy_client,
-            model=self.policy_model,
+            client=client,
+            model=profile.model,
             task=task,
             repo_runner=repo_runner,
             record_command=self.tool_harness.record_command,
             horizon=request.horizon,
             max_tokens_per_run=self.max_tokens_per_run,
-            max_output_tokens=self.policy_max_output_tokens,
-            max_retries=self.policy_max_retries,
-            extra_body=self.policy_extra_body,
+            max_output_tokens=profile.max_output_tokens,
+            max_retries=profile.max_retries,
+            extra_body=profile.extra_body,
             on_step=_on_step,
             on_progress=_on_progress,
             is_cancelled=lambda: run_id in self._cancelled,

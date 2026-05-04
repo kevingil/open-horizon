@@ -123,6 +123,11 @@ class RolloutRequest(BaseModel):
     # name, OpenAI proper ignores it). The coordinator stamps it on the
     # resulting RunManifest so eval harnesses can group rollouts by adapter.
     adapter_id: str | None = None
+    # Named profile to drive this rollout. Profiles are defined at
+    # startup (Settings.policy_profiles) and pick the (base_url, model,
+    # routes_to) triple for the run. Unknown profile names are rejected
+    # at request time. Empty = use Settings.default_policy_profile.
+    policy_profile: str | None = None
 
 
 # --- Training / adapters / eval --------------------------------------------

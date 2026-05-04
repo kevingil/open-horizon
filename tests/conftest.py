@@ -72,6 +72,51 @@ def coordinator(tmp_path: Path, event_bus: EventBus) -> LocalRolloutCoordinator:
     )
 
 
+def _is_localhost(url: str | None) -> bool:
+    if not url:
+        # Empty/None means OpenAI's SDK default = api.openai.com. Refuse.
+        return False
+    lowered = url.lower()
+    return (
+        "127.0.0.1" in lowered
+        or "localhost" in lowered
+        or lowered.startswith("stub://")
+    )
+
+
+@pytest.fixture(autouse=True)
+def _block_paid_openai_outside_smoke(request, monkeypatch):
+    """Phase C paranoid safety net.
+
+    Any test outside `tests/smoke/` that constructs `openai.OpenAI`
+    against a non-localhost base_url fails loudly. The repo's policy is
+    *no test inference, ever* against paid providers; this is the
+    automated check that nobody ever silently regresses it. Smoke tests
+    opt in to real APIs via their own gating (RL_*_SMOKE env vars).
+    """
+    path = str(getattr(request.node, "path", "") or request.node.fspath)
+    if "tests/smoke/" in path.replace("\\", "/"):
+        return
+
+    import openai
+
+    original = openai.OpenAI.__init__
+
+    def _guarded(self, *args, **kwargs):
+        base_url = kwargs.get("base_url")
+        if not _is_localhost(base_url):
+            raise AssertionError(
+                "Test "
+                f"{request.node.nodeid} attempted to construct "
+                f"openai.OpenAI(base_url={base_url!r}); paid-provider "
+                "calls are blocked outside tests/smoke/. Use FakeOpenAI "
+                "or pre-populate coordinator._client_cache instead.",
+            )
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr("openai.OpenAI.__init__", _guarded)
+
+
 @pytest.fixture
 async def drain(event_bus: EventBus) -> list[DomainEvent]:
     import asyncio

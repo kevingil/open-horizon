@@ -17,11 +17,10 @@ def app(tmp_path):
             artifacts_dir=tmp_path / "artifacts",
         )
     )
-    # Bootstrap built a real OpenAI client; swap in a fake so the test
-    # never dials out (Phase C will harden this via a collection guard).
-    built.state.services.coordinator.policy_client = (
-        _scripted_repo_loop(turns=1)  # type: ignore[assignment]
-    )
+    # Phase C: dispatch reads the client from _client_cache; pre-populate
+    # so tests never dial out.
+    coord = built.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _scripted_repo_loop(turns=1)
     return built
 
 

@@ -10,6 +10,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, WebSocket, WebSocke
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from application.coordinator import UnknownPolicyProfile
 from application.eval import EvalTask
 from application.rescore import rescore_run
 from application.training import TrainingRequest
@@ -97,9 +98,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def create_run(request: RolloutRequest, background_tasks: BackgroundTasks):
         # Fire-and-forget: the coordinator emits events; clients watch /ws/events.
         # Allocate run_id here so the caller can cancel before the first event.
+        # Phase C: validate the policy profile up-front so unknown profiles
+        # surface as 422 instead of falling through to a mid-rollout
+        # RuntimeError that the user only sees on the WebSocket.
+        try:
+            services.coordinator._resolve_profile(request)
+        except UnknownPolicyProfile as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         run_id = f"run-{uuid4().hex[:8]}"
         background_tasks.add_task(_safe_start, services, request, run_id)
         return {"status": "accepted", "run_id": run_id, "prompt": request.prompt}
+
+    @app.get("/api/profiles")
+    def list_profiles():
+        """Return the configured policy profiles, redacting api keys.
+
+        Lets clients build a profile picker without dialing out for
+        the available models or having access to credentials.
+        """
+        coord = services.coordinator
+        return {
+            "default": coord.default_profile,
+            "profiles": [
+                {
+                    "name": name,
+                    "model": profile.model,
+                    "base_url": profile.base_url,
+                    "routes_to": profile.routes_to,
+                    "env_id": profile.env_id if profile.routes_to == "verifiers" else None,
+                    "api_key_env": profile.api_key_env,
+                }
+                for name, profile in coord.profiles.items()
+            ],
+        }
 
     @app.post("/api/runs/{run_id}/cancel", status_code=202)
     async def cancel_run(run_id: str):
@@ -110,18 +141,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/api/config")
     def runtime_config():
-        runner = services.coordinator.external_rollout_runner
-        policy_name = (
-            runner.policy_name() if runner is not None
-            else f"openai:{services.coordinator.policy_model}"
-        )
+        coord = services.coordinator
+        default_profile = coord.profiles.get(coord.default_profile)
+        if default_profile is not None and default_profile.routes_to == "verifiers":
+            policy_name = f"verifiers:{default_profile.env_id}:{default_profile.model}"
+            verifiers_env_id = default_profile.env_id
+        elif default_profile is not None:
+            policy_name = f"openai:{default_profile.model}"
+            verifiers_env_id = None
+        else:
+            policy_name = f"openai:{coord.policy_model}"
+            verifiers_env_id = None
         return {
             "env_backend": settings.env_backend,
             "policy_name": policy_name,
             "trainer_backend": settings.trainer_backend,
-            "verifiers_env_id": (
-                settings.verifiers_env_id if settings.env_backend == "verifiers" else None
-            ),
+            "verifiers_env_id": verifiers_env_id,
+            "default_profile": coord.default_profile,
+            "profile_names": sorted(coord.profiles),
         }
 
     @app.get("/api/budget")

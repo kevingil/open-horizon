@@ -97,7 +97,8 @@ async def test_api_cancel_endpoint(tmp_path) -> None:
     )
     # Bootstrap built a real OpenAI client; swap in a fake so the test
     # never dials out (Phase C will harden this via a collection guard).
-    app.state.services.coordinator.policy_client = _slow_loop()  # type: ignore[assignment]
+    coord = app.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _slow_loop()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         resp = await client.post("/api/runs", json={"prompt": "x", "horizon": 1})
         assert resp.status_code == 202
@@ -120,7 +121,8 @@ def test_api_cancel_surfaces_on_websocket(tmp_path) -> None:
         ),
     )
     # Same fake-client swap as test_api_cancel_endpoint: keep the test offline.
-    app.state.services.coordinator.policy_client = _slow_loop()  # type: ignore[assignment]
+    coord = app.state.services.coordinator
+    coord._client_cache[coord.default_profile] = _slow_loop()
     with TestClient(app) as client, client.websocket_connect("/ws/events") as ws:
         resp = client.post("/api/runs", json={"prompt": "race", "horizon": 50})
         run_id = resp.json()["run_id"]
