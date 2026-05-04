@@ -13,6 +13,11 @@ from domain.contracts import (
     Trainer,
     TrainingStore,
 )
+from domain.scheduling import (
+    FixedRoundsScheduler,
+    RoundScheduler,
+    ScalingRoundsScheduler,
+)
 from infrastructure.adapters.local import LocalAdapterRegistry
 from infrastructure.environment.repo_runner import RepoEnvironmentRunner
 from infrastructure.environment.sandbox import build_sandbox
@@ -53,6 +58,7 @@ def build_application_services(
 
     repo_runner = _build_repo_runner(settings, root)
     profiles = _build_profiles(settings)
+    round_scheduler = _build_round_scheduler(settings)
 
     coordinator = LocalRolloutCoordinator(
         tool_harness=LocalToolHarness(root=root),
@@ -67,6 +73,7 @@ def build_application_services(
         repo_runner=repo_runner,
         profiles=profiles,
         default_profile=settings.default_policy_profile,
+        round_scheduler=round_scheduler,
     )
     training_service = TrainingService(
         trainer=trainer,
@@ -108,6 +115,19 @@ def _build_repo_runner(settings: Settings, root: Path) -> RepoEnvironmentRunner 
         max_output_bytes=settings.env_max_output_bytes,
         sandbox=sandbox,
     )
+
+
+def _build_round_scheduler(settings: Settings) -> RoundScheduler:
+    """Construct the per-rollout horizon scheduler from settings."""
+    if settings.round_scheduler == "scaling":
+        mode = settings.scaling_mode if settings.scaling_mode in ("linear", "step") else "linear"
+        return ScalingRoundsScheduler(
+            start=settings.scaling_horizon_start,
+            end=settings.scaling_horizon_end,
+            ramp_steps=settings.scaling_ramp_steps,
+            mode=mode,  # type: ignore[arg-type]
+        )
+    return FixedRoundsScheduler(horizon=settings.round_scheduler_default_horizon)
 
 
 def _build_profiles(settings: Settings) -> dict[str, PolicyProfile]:

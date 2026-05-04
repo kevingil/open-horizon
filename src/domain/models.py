@@ -117,7 +117,9 @@ class RolloutRequest(BaseModel):
     prompt: str
     repo_snapshot: str = "."
     infra_target: str = "mac-local"
-    horizon: int = Field(default=6, ge=1)
+    # When None, the coordinator's RoundScheduler decides the horizon.
+    # Passing an explicit int overrides the scheduler for this rollout.
+    horizon: int | None = Field(default=None, ge=1)
     success_criteria: list[str] = Field(default_factory=list)
     # Optional adapter id; the policy server may use it (vLLM mounts LoRAs by
     # name, OpenAI proper ignores it). The coordinator stamps it on the

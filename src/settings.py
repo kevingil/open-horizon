@@ -112,6 +112,18 @@ class Settings(BaseSettings):
     daily_budget_usd: float = Field(default=5.0, ge=0)
     budget_window_hours: float = Field(default=24.0, gt=0)
 
+    # Phase D: per-rollout horizon scheduler. "fixed" (default) returns
+    # `round_scheduler_default_horizon` for every rollout; "scaling"
+    # ramps from `scaling_horizon_start` to `scaling_horizon_end` over
+    # `scaling_ramp_steps` training steps (linear or step mode). When
+    # the request itself sets `horizon=N`, that wins regardless.
+    round_scheduler: str = Field(default="fixed")
+    round_scheduler_default_horizon: int = Field(default=6, ge=1)
+    scaling_horizon_start: int = Field(default=4, ge=1)
+    scaling_horizon_end: int = Field(default=16, ge=1)
+    scaling_ramp_steps: int = Field(default=100, ge=1)
+    scaling_mode: str = Field(default="linear")
+
     # Training
     trainer_backend: str = Field(default="stub")  # "stub" (default) or "grpo"
     training_store_backend: str = Field(default="memory")  # "memory" or "sqlite"

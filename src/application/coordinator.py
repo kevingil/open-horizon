@@ -38,6 +38,7 @@ from domain.models import (
     WorkerRecord,
     WorkerStatus,
 )
+from domain.scheduling import FixedRoundsScheduler, RoundScheduler
 from settings import PolicyProfile
 
 from .event_bus import EventBus
@@ -95,6 +96,13 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     # fields above so existing callers keep working unchanged.
     profiles: dict[str, PolicyProfile] = field(default_factory=dict)
     default_profile: str = "default"
+    # Phase D: per-rollout horizon comes from this scheduler when the
+    # request itself omits one. Default mirrors today's
+    # `request.horizon=6` behavior; ScalingRoundsScheduler supports the
+    # AgentGym-style ramp curriculum.
+    round_scheduler: RoundScheduler = field(
+        default_factory=lambda: FixedRoundsScheduler(horizon=6)
+    )
     _client_cache: dict[str, Any] = field(init=False, default_factory=dict)
     _verifiers_cache: dict[str, Any] = field(init=False, default_factory=dict)
     _semaphore: asyncio.Semaphore = field(init=False)
@@ -189,7 +197,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             prompt=request.prompt,
             repo_snapshot=request.repo_snapshot,
             tool_permissions=[ToolPermission.read],
-            horizon=request.horizon,
+            horizon=self._resolve_horizon(request),
             success_criteria=request.success_criteria or ["(budget-blocked)"],
         )
         trajectory = TrajectoryRecord(
@@ -213,6 +221,15 @@ class LocalRolloutCoordinator(RolloutCoordinator):
 
     def _resolve_profile_name(self, request: RolloutRequest) -> str:
         return request.policy_profile or self.default_profile
+
+    def _resolve_horizon(
+        self, request: RolloutRequest, *, training_step: int = 0,
+    ) -> int:
+        """Pick the per-rollout horizon. Explicit `request.horizon` wins;
+        otherwise the configured RoundScheduler decides."""
+        if request.horizon is not None:
+            return request.horizon
+        return self.round_scheduler.current_horizon(training_step=training_step)
 
     def _resolve_profile(self, request: RolloutRequest) -> PolicyProfile:
         name = self._resolve_profile_name(request)
@@ -300,7 +317,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                     ToolPermission.search,
                     ToolPermission.terminal,
                 ],
-                horizon=request.horizon,
+                horizon=self._resolve_horizon(request),
                 success_criteria=request.success_criteria or ["manual review"],
             )
             profile = self._resolve_profile(request)
@@ -528,7 +545,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             task=task,
             repo_runner=repo_runner,
             record_command=self.tool_harness.record_command,
-            horizon=request.horizon,
+            horizon=task.horizon,
             max_tokens_per_run=self.max_tokens_per_run,
             max_output_tokens=profile.max_output_tokens,
             max_retries=profile.max_retries,
