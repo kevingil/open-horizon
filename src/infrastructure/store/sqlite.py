@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import array
 import json
 import sqlite3
 import threading
@@ -20,6 +21,7 @@ from domain.models import (
     ToolPermission,
     TrajectoryRecord,
     TrajectoryStep,
+    TurnTrainingRecord,
     WorkerRecord,
     WorkerStatus,
 )
@@ -51,6 +53,22 @@ CREATE TABLE IF NOT EXISTS workers (
   detail   TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS turn_training (
+  id              TEXT NOT NULL,
+  run_id          TEXT NOT NULL,
+  step_index      INTEGER NOT NULL,
+  model_name      TEXT NOT NULL,
+  token_count     INTEGER NOT NULL,
+  prompt_ids      BLOB NOT NULL,
+  completion_ids  BLOB NOT NULL,
+  attention_mask  BLOB NOT NULL,
+  loss_mask       BLOB NOT NULL,
+  sampling_args   TEXT NOT NULL,
+  created_at      TEXT NOT NULL,
+  PRIMARY KEY (run_id, step_index)
+);
+CREATE INDEX IF NOT EXISTS turn_training_run_id ON turn_training (run_id);
 """
 
 
@@ -130,6 +148,58 @@ class SqliteArtifactStore(ArtifactStore):
                 ),
             )
         return run
+
+    def save_turn_training(self, record: TurnTrainingRecord) -> TurnTrainingRecord:
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO turn_training (
+                    id, run_id, step_index, model_name, token_count,
+                    prompt_ids, completion_ids, attention_mask, loss_mask,
+                    sampling_args, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(run_id, step_index) DO UPDATE SET
+                    id=excluded.id,
+                    model_name=excluded.model_name,
+                    token_count=excluded.token_count,
+                    prompt_ids=excluded.prompt_ids,
+                    completion_ids=excluded.completion_ids,
+                    attention_mask=excluded.attention_mask,
+                    loss_mask=excluded.loss_mask,
+                    sampling_args=excluded.sampling_args,
+                    created_at=excluded.created_at
+                """,
+                (
+                    record.id, record.run_id, record.step_index,
+                    record.model_name, record.token_count,
+                    _pack_ints(record.prompt_ids),
+                    _pack_ints(record.completion_ids),
+                    _pack_ints(record.attention_mask),
+                    _pack_ints(record.loss_mask),
+                    json.dumps(record.sampling_args),
+                    record.created_at.isoformat(),
+                ),
+            )
+        return record
+
+    def get_turn_training(
+        self, run_id: str, step_index: int,
+    ) -> TurnTrainingRecord | None:
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM turn_training WHERE run_id = ? AND step_index = ?",
+                (run_id, step_index),
+            ).fetchone()
+        return _row_to_turn_training(row) if row else None
+
+    def list_turn_training(self, run_id: str) -> list[TurnTrainingRecord]:
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM turn_training WHERE run_id = ? "
+                "ORDER BY step_index ASC",
+                (run_id,),
+            ).fetchall()
+        return [_row_to_turn_training(r) for r in rows]
 
     def total_cost_since(self, since: datetime) -> float:
         iso = since.isoformat()
@@ -226,6 +296,34 @@ def _row_to_detail(row: sqlite3.Row) -> RunDetail:
         trajectory=trajectory,
         reward=reward,
         artifacts=artifacts,
+    )
+
+
+def _pack_ints(values: list[int]) -> bytes:
+    """Pack a token-id / mask list as 4-byte signed ints. Way smaller on
+    disk than the JSON shape Pydantic would produce by default."""
+    return array.array("i", values).tobytes()
+
+
+def _unpack_ints(blob: bytes) -> list[int]:
+    arr = array.array("i")
+    arr.frombytes(blob)
+    return arr.tolist()
+
+
+def _row_to_turn_training(row: sqlite3.Row) -> TurnTrainingRecord:
+    return TurnTrainingRecord(
+        id=row["id"],
+        run_id=row["run_id"],
+        step_index=row["step_index"],
+        model_name=row["model_name"],
+        token_count=row["token_count"],
+        prompt_ids=_unpack_ints(row["prompt_ids"]),
+        completion_ids=_unpack_ints(row["completion_ids"]),
+        attention_mask=_unpack_ints(row["attention_mask"]),
+        loss_mask=_unpack_ints(row["loss_mask"]),
+        sampling_args=json.loads(row["sampling_args"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
     )
 
 

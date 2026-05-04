@@ -114,6 +114,9 @@ async def run_repo_rollout(
     extra_body: dict[str, Any] | None = None,
     on_step: Callable[[TrajectoryStep], Awaitable[None]] | None = None,
     on_progress: Callable[[int, int, float, str | None], Awaitable[None]] | None = None,
+    on_turn: (
+        Callable[[int, str, str, dict[str, Any]], Awaitable[None]] | None
+    ) = None,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> RepoRolloutOutcome:
     """Drive an OpenAI-compat tool-call loop turn-by-turn against a repo runner.
@@ -124,7 +127,10 @@ async def run_repo_rollout(
 
     `on_step` fires once per recorded TrajectoryStep (action + observation).
     `on_progress` fires once per turn with (turn_index, tokens, cost_usd,
-    tool_name). `is_cancelled` is polled before and after each turn.
+    tool_name). `on_turn` fires once per turn with (turn_index,
+    prompt_text, completion_text, sampling_args) - that's the trainer-
+    ready signal Phase E's TrainingRecorder consumes. `is_cancelled` is
+    polled before and after each turn.
 
     Returns a RepoRolloutOutcome carrying the trajectory, token totals,
     and a string policy name for the manifest (`openai:<model>`). The
@@ -143,11 +149,19 @@ async def run_repo_rollout(
     cancelled = False
     token_overflow = False
 
+    sampling_args = {"max_tokens": max_output_tokens}
+    if extra_body:
+        sampling_args = {**sampling_args, **extra_body}
+
     for turn in range(horizon):
         if is_cancelled and is_cancelled():
             errors.append("cancelled")
             cancelled = True
             break
+
+        # Snapshot the message context BEFORE _generate_action mutates it -
+        # this is the prompt the recorder needs to pair with the completion.
+        prompt_snapshot = json.dumps(state.messages, default=str)
 
         action = await asyncio.to_thread(
             _generate_action, client, model, state, max_output_tokens,
@@ -158,6 +172,7 @@ async def run_repo_rollout(
 
         action_step = TrajectoryStep(
             index=turn * 2, actor="policy", kind="action", content=action,
+            has_training_metadata=on_turn is not None,
         )
         obs_step = TrajectoryStep(
             index=turn * 2 + 1, actor="environment", kind="observation",
@@ -167,6 +182,8 @@ async def run_repo_rollout(
         if on_step is not None:
             await on_step(action_step)
             await on_step(obs_step)
+        if on_turn is not None:
+            await on_turn(turn, prompt_snapshot, action, sampling_args)
 
         tokens = _total_tokens(state)
         cost = estimate_cost_usd(

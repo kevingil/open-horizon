@@ -17,6 +17,7 @@ from .models import (
     TrainingMetricPoint,
     TrainingRunRecord,
     TrajectoryRecord,
+    TurnTrainingRecord,
 )
 
 
@@ -52,6 +53,20 @@ class ArtifactStore(ABC):
     @abstractmethod
     def total_cost_since(self, since: datetime) -> float:
         """Sum of estimated_cost_usd across runs created at or after `since`."""
+
+    # Phase E: per-turn training metadata stored in its own table so it
+    # never travels inside RunDetail / /api/runs/{id} payloads.
+    # Backends that don't support training data can no-op these.
+    def save_turn_training(self, record: TurnTrainingRecord) -> TurnTrainingRecord:
+        raise NotImplementedError
+
+    def get_turn_training(
+        self, run_id: str, step_index: int,
+    ) -> TurnTrainingRecord | None:
+        return None
+
+    def list_turn_training(self, run_id: str) -> list[TurnTrainingRecord]:
+        return []
 
 
 class RolloutCoordinator(ABC):

@@ -49,6 +49,7 @@ if TYPE_CHECKING:
         VerifiersRolloutRunner,
     )
     from infrastructure.policy.repo_loop import OpenAILike
+    from infrastructure.training.recorder import TrainingRecorder
 
 log = structlog.get_logger(__name__)
 
@@ -103,6 +104,11 @@ class LocalRolloutCoordinator(RolloutCoordinator):
     round_scheduler: RoundScheduler = field(
         default_factory=lambda: FixedRoundsScheduler(horizon=6)
     )
+    # Phase E: optional per-turn training recorder. When set, every
+    # repo-path turn produces a TurnTrainingRecord that the coordinator
+    # persists alongside the trajectory (separate table/dict, never in
+    # RunDetail). Default None = no training metadata captured.
+    training_recorder: TrainingRecorder | None = None
     _client_cache: dict[str, Any] = field(init=False, default_factory=dict)
     _verifiers_cache: dict[str, Any] = field(init=False, default_factory=dict)
     _semaphore: asyncio.Semaphore = field(init=False)
@@ -539,6 +545,24 @@ class LocalRolloutCoordinator(RolloutCoordinator):
                 ),
             )
 
+        recorder = self.training_recorder
+
+        async def _on_turn(
+            turn: int, prompt_text: str, completion_text: str,
+            sampling_args: dict[str, Any],
+        ) -> None:
+            if recorder is None:
+                return
+            recorder.record(
+                run_id=run_id,
+                step_index=turn * 2,  # match action_step's index in trajectory
+                prompt_text=prompt_text,
+                completion_text=completion_text,
+                sampling_args=sampling_args,
+                model_name=profile.model,
+                store=self.artifact_store,
+            )
+
         outcome = await run_repo_rollout(
             client=client,
             model=profile.model,
@@ -551,6 +575,7 @@ class LocalRolloutCoordinator(RolloutCoordinator):
             max_retries=profile.max_retries,
             extra_body=profile.extra_body,
             on_step=_on_step,
+            on_turn=_on_turn if recorder is not None else None,
             on_progress=_on_progress,
             is_cancelled=lambda: run_id in self._cancelled,
         )

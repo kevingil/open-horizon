@@ -9,6 +9,7 @@ from domain.models import (
     DashboardSnapshot,
     RunDetail,
     RunManifest,
+    TurnTrainingRecord,
     WorkerRecord,
     WorkerStatus,
 )
@@ -18,6 +19,9 @@ from domain.models import (
 class InMemoryArtifactStore(ArtifactStore):
     runs_by_id: dict[str, RunDetail] = field(default_factory=dict)
     workers: list[WorkerRecord] = field(default_factory=list)
+    # Phase E: keyed by (run_id, step_index) so the trainer can fetch a
+    # specific turn without dragging the whole rollout payload.
+    turn_training: dict[tuple[str, int], TurnTrainingRecord] = field(default_factory=dict)
 
     def list_runs(self) -> list[RunManifest]:
         runs = [detail.manifest for detail in self.runs_by_id.values()]
@@ -42,6 +46,19 @@ class InMemoryArtifactStore(ArtifactStore):
             ),
             6,
         )
+
+    def save_turn_training(self, record: TurnTrainingRecord) -> TurnTrainingRecord:
+        self.turn_training[(record.run_id, record.step_index)] = record
+        return record
+
+    def get_turn_training(
+        self, run_id: str, step_index: int,
+    ) -> TurnTrainingRecord | None:
+        return self.turn_training.get((run_id, step_index))
+
+    def list_turn_training(self, run_id: str) -> list[TurnTrainingRecord]:
+        rows = [r for (rid, _), r in self.turn_training.items() if rid == run_id]
+        return sorted(rows, key=lambda r: r.step_index)
 
     def dashboard(self) -> DashboardSnapshot:
         recent_artifacts: list[ArtifactRecord] = []

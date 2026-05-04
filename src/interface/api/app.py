@@ -94,6 +94,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="Run not found")
         return run
 
+    @app.get("/api/runs/{run_id}/turns")
+    def list_run_turns(run_id: str):
+        """Per-turn training metadata index. Cheap; no token bytes.
+
+        Use the per-step endpoint below to fetch a specific turn's
+        prompt_ids / completion_ids / masks when you actually need them
+        (e.g. building a trainer dataset).
+        """
+        run = services.artifact_store.get_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        rows = services.artifact_store.list_turn_training(run_id)
+        return [
+            {
+                "step_index": r.step_index,
+                "model_name": r.model_name,
+                "token_count": r.token_count,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+
+    @app.get("/api/runs/{run_id}/turns/{step_index}/training")
+    def get_run_turn_training(run_id: str, step_index: int):
+        record = services.artifact_store.get_turn_training(run_id, step_index)
+        if record is None:
+            raise HTTPException(
+                status_code=404, detail="No training metadata for this turn",
+            )
+        return record
+
     @app.post("/api/runs", status_code=202)
     async def create_run(request: RolloutRequest, background_tasks: BackgroundTasks):
         # Fire-and-forget: the coordinator emits events; clients watch /ws/events.

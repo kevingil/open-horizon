@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,11 @@ class TrajectoryStep(BaseModel):
     kind: str
     content: str
     timestamp: datetime = Field(default_factory=utc_now)
+    # Phase E: flips True when the coordinator's training recorder
+    # writes a TurnTrainingRecord row joined to this step. Cheap signal
+    # for "is there training metadata to fetch" without paying the
+    # bytes-payload cost in /api/runs/{id}.
+    has_training_metadata: bool = False
 
 
 class TrajectoryRecord(BaseModel):
@@ -54,6 +60,33 @@ class TrajectoryRecord(BaseModel):
     summaries: list[str] = Field(default_factory=list)
     timings_ms: dict[str, int] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
+
+
+class TurnTrainingRecord(BaseModel):
+    """Per-turn token-level metadata, stored alongside the trajectory but
+    in its own table.
+
+    Long-horizon rollouts can balloon prompt_ids/completion_ids/masks
+    to hundreds of KB per turn. Keeping that out of `RunDetail`
+    payloads means the dashboard never pays the cost; trainers fetch
+    these rows on demand via /api/runs/{run_id}/turns.
+
+    Lists carry token ids as plain ints rather than numpy arrays so
+    the model can serialize over JSON; storage backends are free to
+    pack them as bytes internally.
+    """
+
+    id: str
+    run_id: str
+    step_index: int
+    prompt_ids: list[int] = Field(default_factory=list)
+    completion_ids: list[int] = Field(default_factory=list)
+    attention_mask: list[int] = Field(default_factory=list)
+    loss_mask: list[int] = Field(default_factory=list)
+    sampling_args: dict[str, Any] = Field(default_factory=dict)
+    model_name: str = ""
+    token_count: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class RewardPenalty(BaseModel):
