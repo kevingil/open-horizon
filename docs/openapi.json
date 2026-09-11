@@ -100,7 +100,7 @@
           }
         },
         "responses": {
-          "202": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -711,7 +711,10 @@
         "required": [
           "id",
           "base_model",
-          "path"
+          "path",
+          "tags",
+          "metadata",
+          "created_at"
         ],
         "properties": {
           "base_model": {
@@ -760,25 +763,6 @@
               "string",
               "null"
             ]
-          }
-        }
-      },
-      "ArtifactRecord": {
-        "type": "object",
-        "required": [
-          "name",
-          "kind",
-          "path"
-        ],
-        "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "path": {
-            "type": "string"
           }
         }
       },
@@ -843,14 +827,10 @@
       "CancelResponse": {
         "type": "object",
         "required": [
-          "status",
           "run_id"
         ],
         "properties": {
           "run_id": {
-            "type": "string"
-          },
-          "status": {
             "type": "string"
           }
         }
@@ -858,18 +838,10 @@
       "CreateRunResponse": {
         "type": "object",
         "required": [
-          "status",
-          "run_id",
-          "prompt"
+          "run_id"
         ],
         "properties": {
-          "prompt": {
-            "type": "string"
-          },
           "run_id": {
-            "type": "string"
-          },
-          "status": {
             "type": "string"
           }
         }
@@ -897,13 +869,9 @@
       "CreateTrainingRunResponse": {
         "type": "object",
         "required": [
-          "status",
           "training_run_id"
         ],
         "properties": {
-          "status": {
-            "type": "string"
-          },
           "training_run_id": {
             "type": "string"
           }
@@ -912,20 +880,18 @@
       "DashboardSnapshot": {
         "type": "object",
         "required": [
+          "generated_at",
           "runs",
           "workers",
-          "recent_artifacts"
+          "jobs"
         ],
         "properties": {
           "generated_at": {
             "type": "string",
             "format": "date-time"
           },
-          "recent_artifacts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ArtifactRecord"
-            }
+          "jobs": {
+            "$ref": "#/components/schemas/JobCounts"
           },
           "runs": {
             "type": "array",
@@ -944,11 +910,19 @@
       "DomainEvent": {
         "oneOf": [
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.queued"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "manifest"
@@ -958,29 +932,49 @@
                     "$ref": "#/components/schemas/RunManifest"
                   }
                 }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.started"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "kind"
+                  "manifest"
                 ],
                 "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "rollout.started"
-                    ]
+                  "manifest": {
+                    "$ref": "#/components/schemas/RunManifest"
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "step.recorded"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "step"
@@ -990,178 +984,33 @@
                     "$ref": "#/components/schemas/TrajectoryStep"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "step.recorded"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "progress.ticked"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "terminal_reward",
-                  "provenance"
-                ],
-                "properties": {
-                  "audit_flags": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
-                  "provenance": {
-                    "type": "string"
-                  },
-                  "terminal_reward": {
-                    "type": "number",
-                    "format": "double"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "reward.computed"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "detail"
-                ],
-                "properties": {
-                  "detail": {
-                    "$ref": "#/components/schemas/RunDetail"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "rollout.completed"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "error"
-                ],
-                "properties": {
-                  "error": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "rollout.failed"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "reason": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "rollout.cancelled"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "step_index"
+                  "turn",
+                  "tokens",
+                  "cost_usd"
                 ],
                 "properties": {
                   "cost_usd": {
                     "type": "number",
                     "format": "double"
-                  },
-                  "step_index": {
-                    "type": "integer",
-                    "format": "int32",
-                    "minimum": 0
                   },
                   "tokens": {
                     "type": "integer",
@@ -1173,31 +1022,138 @@
                       "string",
                       "null"
                     ]
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "progress.ticked"
-                    ]
+                  },
+                  "turn": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "reward.computed"
+                ]
               },
-              {
+              "payload": {
+                "type": "object",
+                "required": [
+                  "reward"
+                ],
+                "properties": {
+                  "reward": {
+                    "$ref": "#/components/schemas/RewardRecord"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.completed"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "required": [
+                  "manifest"
+                ],
+                "properties": {
+                  "manifest": {
+                    "$ref": "#/components/schemas/RunManifest"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.failed"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "required": [
+                  "manifest",
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  },
+                  "manifest": {
+                    "$ref": "#/components/schemas/RunManifest"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rollout.cancelled"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "required": [
+                  "manifest"
+                ],
+                "properties": {
+                  "manifest": {
+                    "$ref": "#/components/schemas/RunManifest"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "budget.exceeded"
+                ]
+              },
+              "payload": {
                 "type": "object",
                 "required": [
                   "spent_usd",
@@ -1218,29 +1174,23 @@
                     "format": "double"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "budget.exceeded"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "worker.updated"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "worker"
@@ -1250,34 +1200,29 @@
                     "$ref": "#/components/schemas/WorkerRecord"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "worker.updated"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "log.line"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "level",
                   "logger",
-                  "message"
+                  "message",
+                  "context"
                 ],
                 "properties": {
                   "context": {
@@ -1299,173 +1244,157 @@
                     "type": "string"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "log.line"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training.queued"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "training_run_id",
                   "record"
                 ],
                 "properties": {
                   "record": {
                     "$ref": "#/components/schemas/TrainingRunRecord"
-                  },
-                  "training_run_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "training.started"
-                    ]
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training.started"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "training_run_id",
+                  "record"
+                ],
+                "properties": {
+                  "record": {
+                    "$ref": "#/components/schemas/TrainingRunRecord"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training.metric"
+                ]
+              },
+              "payload": {
+                "type": "object",
+                "required": [
                   "metric"
                 ],
                 "properties": {
                   "metric": {
                     "$ref": "#/components/schemas/TrainingMetricPoint"
-                  },
-                  "training_run_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "training.metric"
-                    ]
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training.completed"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "training_run_id",
                   "record"
                 ],
                 "properties": {
                   "record": {
                     "$ref": "#/components/schemas/TrainingRunRecord"
-                  },
-                  "training_run_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "training.completed"
-                    ]
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training.failed"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
-                  "training_run_id",
+                  "record",
                   "error"
                 ],
                 "properties": {
                   "error": {
                     "type": "string"
                   },
-                  "training_run_id": {
-                    "type": "string"
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "training.failed"
-                    ]
+                  "record": {
+                    "$ref": "#/components/schemas/TrainingRunRecord"
                   }
                 }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "adapter.published"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "adapter"
@@ -1475,29 +1404,23 @@
                     "$ref": "#/components/schemas/AdapterRecord"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "adapter.published"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           },
           {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/EventMeta"
+            "type": "object",
+            "required": [
+              "payload",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "eval.completed"
+                ]
               },
-              {
+              "payload": {
                 "type": "object",
                 "required": [
                   "report"
@@ -1507,22 +1430,8 @@
                     "$ref": "#/components/schemas/EvalReport"
                   }
                 }
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "eval.completed"
-                    ]
-                  }
-                }
               }
-            ]
+            }
           }
         ]
       },
@@ -1543,7 +1452,9 @@
           "id",
           "adapter_id",
           "task_set",
-          "mean_reward"
+          "mean_reward",
+          "per_task",
+          "created_at"
         ],
         "properties": {
           "adapter_id": {
@@ -1601,9 +1512,13 @@
         "type": "object",
         "required": [
           "task_id",
+          "run_id",
           "terminal_reward"
         ],
         "properties": {
+          "run_id": {
+            "type": "string"
+          },
           "task_id": {
             "type": "string"
           },
@@ -1613,41 +1528,55 @@
           }
         }
       },
-      "EventEnvelope": {
-        "type": "object",
-        "description": "One row of the durable event log. `seq` is monotonic per store so\nclients can resume a WebSocket with `?since=<seq>`.",
-        "required": [
-          "seq",
-          "event"
-        ],
-        "properties": {
-          "event": {
+      "Event": {
+        "allOf": [
+          {
             "$ref": "#/components/schemas/DomainEvent"
           },
-          "seq": {
-            "type": "integer",
-            "format": "int64"
+          {
+            "type": "object",
+            "required": [
+              "at"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "subject": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Subject"
+                  }
+                ]
+              }
+            }
           }
-        }
+        ],
+        "description": "An event with its subject, before it is assigned a sequence number."
       },
-      "EventMeta": {
-        "type": "object",
-        "description": "Fields every event carries. Flattened into each variant so the wire\nshape is `{kind, event_id, at, run_id, ...payload}`, matching what the\ndashboard already consumes.",
-        "properties": {
-          "at": {
-            "type": "string",
-            "format": "date-time"
+      "EventEnvelope": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Event"
           },
-          "event_id": {
-            "type": "string"
-          },
-          "run_id": {
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "type": "object",
+            "required": [
+              "seq"
+            ],
+            "properties": {
+              "seq": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
           }
-        }
+        ],
+        "description": "One row of the durable event log. `seq` is monotonic per store so\nclients can resume a WebSocket with `?since=<seq>`."
       },
       "HealthResponse": {
         "type": "object",
@@ -1657,6 +1586,43 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "JobCounts": {
+        "type": "object",
+        "required": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "properties": {
+          "cancelled": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "running": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -1674,7 +1640,11 @@
           "id",
           "kind",
           "status",
-          "payload"
+          "payload",
+          "attempts",
+          "cancel_requested",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
           "attempts": {
@@ -1792,30 +1762,32 @@
         "required": [
           "run_id",
           "rubric",
-          "previous_terminal_reward",
-          "new_terminal_reward",
-          "delta",
-          "persisted",
-          "new_reward"
+          "reward",
+          "persisted"
         ],
         "properties": {
           "delta": {
-            "type": "number",
-            "format": "double"
-          },
-          "new_reward": {
-            "$ref": "#/components/schemas/RewardRecord"
-          },
-          "new_terminal_reward": {
-            "type": "number",
+            "type": [
+              "number",
+              "null"
+            ],
             "format": "double"
           },
           "persisted": {
             "type": "boolean"
           },
-          "previous_terminal_reward": {
-            "type": "number",
-            "format": "double"
+          "previous": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RewardRecord"
+              }
+            ]
+          },
+          "reward": {
+            "$ref": "#/components/schemas/RewardRecord"
           },
           "rubric": {
             "type": "string"
@@ -1825,33 +1797,14 @@
           }
         }
       },
-      "RewardPenalty": {
-        "type": "object",
-        "required": [
-          "code",
-          "value",
-          "reason"
-        ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "value": {
-            "type": "number",
-            "format": "double"
-          }
-        }
-      },
       "RewardRecord": {
         "type": "object",
         "required": [
-          "trajectory_id",
           "terminal_reward",
-          "step_rewards",
-          "provenance"
+          "rubric",
+          "source",
+          "signals",
+          "audit_flags"
         ],
         "properties": {
           "audit_flags": {
@@ -1860,28 +1813,49 @@
               "type": "string"
             }
           },
-          "penalties": {
+          "rubric": {
+            "type": "string",
+            "description": "`heuristic-v1`, `coding-v1`, `verifiers-vf-math`, ..."
+          },
+          "signals": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/RewardPenalty"
+              "$ref": "#/components/schemas/RewardSignal"
             }
           },
-          "provenance": {
-            "type": "string"
-          },
-          "step_rewards": {
-            "type": "array",
-            "items": {
-              "type": "number",
-              "format": "double"
-            }
+          "source": {
+            "type": "string",
+            "description": "`rubric` (in-house signals) or `verifiers` (env-owned scoring)."
           },
           "terminal_reward": {
             "type": "number",
             "format": "double"
-          },
-          "trajectory_id": {
+          }
+        }
+      },
+      "RewardSignal": {
+        "type": "object",
+        "description": "One named contribution to a reward.",
+        "required": [
+          "name",
+          "value",
+          "weight",
+          "reason"
+        ],
+        "properties": {
+          "name": {
             "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          },
+          "weight": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -1953,28 +1927,27 @@
         "required": [
           "manifest",
           "task",
-          "trajectory",
-          "reward",
-          "artifacts"
+          "trajectory"
         ],
         "properties": {
-          "artifacts": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ArtifactRecord"
-            }
-          },
           "manifest": {
             "$ref": "#/components/schemas/RunManifest"
           },
           "reward": {
-            "$ref": "#/components/schemas/RewardRecord"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RewardRecord"
+              }
+            ]
           },
           "task": {
             "$ref": "#/components/schemas/TaskSpec"
           },
           "trajectory": {
-            "$ref": "#/components/schemas/TrajectoryRecord"
+            "$ref": "#/components/schemas/Trajectory"
           }
         }
       },
@@ -2002,11 +1975,16 @@
         "type": "object",
         "required": [
           "id",
+          "profile",
           "model_id",
-          "dataset_slice",
           "infra_target",
-          "seed",
-          "status"
+          "status",
+          "horizon",
+          "tokens",
+          "cost_usd",
+          "step_count",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
           "adapter_id": {
@@ -2015,16 +1993,24 @@
               "null"
             ]
           },
+          "cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
           },
-          "dataset_slice": {
-            "type": "string"
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
-          "estimated_cost_usd": {
-            "type": "number",
-            "format": "double"
+          "horizon": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "id": {
             "type": "string"
@@ -2033,14 +2019,32 @@
             "type": "string"
           },
           "model_id": {
-            "type": "string"
+            "type": "string",
+            "description": "`openai:<model>` or `verifiers:<env>:<model>`."
           },
-          "seed": {
-            "type": "integer",
-            "format": "int64"
+          "profile": {
+            "type": "string",
+            "description": "Policy profile name the run was dispatched with."
           },
           "status": {
             "$ref": "#/components/schemas/RunStatus"
+          },
+          "step_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "terminal_reward": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "updated_at": {
             "type": "string",
@@ -2051,10 +2055,11 @@
       "RunStatus": {
         "type": "string",
         "enum": [
-          "pending",
+          "queued",
           "running",
           "completed",
-          "failed"
+          "failed",
+          "cancelled"
         ]
       },
       "RuntimeConfig": {
@@ -2066,7 +2071,9 @@
           "default_profile",
           "profile_names",
           "store_backend",
-          "worker_id"
+          "sandbox",
+          "worker_id",
+          "max_parallel_rollouts"
         ],
         "properties": {
           "default_profile": {
@@ -2074,6 +2081,10 @@
           },
           "env_backend": {
             "type": "string"
+          },
+          "max_parallel_rollouts": {
+            "type": "integer",
+            "minimum": 0
           },
           "policy_name": {
             "type": "string"
@@ -2083,6 +2094,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "sandbox": {
+            "type": "string"
           },
           "store_backend": {
             "type": "string"
@@ -2101,13 +2115,90 @@
           }
         }
       },
+      "Subject": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "run"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "training_run"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "adapter"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "kind"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "worker"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "TaskSpec": {
         "type": "object",
+        "description": "What a rollout is asked to do.",
         "required": [
           "id",
           "prompt",
           "repo_snapshot",
-          "tool_permissions",
+          "horizon",
           "success_criteria"
         ],
         "properties": {
@@ -2130,29 +2221,15 @@
             "items": {
               "type": "string"
             }
-          },
-          "tool_permissions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ToolPermission"
-            }
           }
         }
-      },
-      "ToolPermission": {
-        "type": "string",
-        "enum": [
-          "read",
-          "edit",
-          "terminal",
-          "search"
-        ]
       },
       "TrainingMetricPoint": {
         "type": "object",
         "required": [
           "step",
-          "loss"
+          "loss",
+          "extra"
         ],
         "properties": {
           "extra": {
@@ -2193,7 +2270,14 @@
       "TrainingRunRecord": {
         "type": "object",
         "required": [
-          "id"
+          "id",
+          "status",
+          "trainer",
+          "sample_run_ids",
+          "hyperparams",
+          "metrics",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
           "adapter_in": {
@@ -2239,6 +2323,9 @@
           "status": {
             "$ref": "#/components/schemas/TrainingStatus"
           },
+          "trainer": {
+            "type": "string"
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
@@ -2248,19 +2335,18 @@
       "TrainingStatus": {
         "type": "string",
         "enum": [
-          "pending",
+          "queued",
           "running",
           "completed",
           "failed",
           "cancelled"
         ]
       },
-      "TrajectoryRecord": {
+      "Trajectory": {
         "type": "object",
         "required": [
-          "id",
-          "task_id",
-          "steps"
+          "steps",
+          "errors"
         ],
         "properties": {
           "errors": {
@@ -2269,32 +2355,10 @@
               "type": "string"
             }
           },
-          "id": {
-            "type": "string"
-          },
           "steps": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TrajectoryStep"
-            }
-          },
-          "summaries": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "task_id": {
-            "type": "string"
-          },
-          "timings_ms": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "propertyNames": {
-              "type": "string"
             }
           }
         }
@@ -2305,18 +2369,23 @@
           "index",
           "actor",
           "kind",
-          "content"
+          "content",
+          "at"
         ],
         "properties": {
           "actor": {
             "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
           },
           "content": {
             "type": "string"
           },
           "has_training_metadata": {
             "type": "boolean",
-            "description": "Flips true when a `TurnTrainingRecord` row exists for this step."
+            "description": "True when a `TurnTrainingRecord` row exists for this step."
           },
           "index": {
             "type": "integer",
@@ -2325,10 +2394,6 @@
           },
           "kind": {
             "type": "string"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -2342,7 +2407,8 @@
         ],
         "properties": {
           "created_at": {
-            "type": "string"
+            "type": "string",
+            "format": "date-time"
           },
           "model_name": {
             "type": "string"
@@ -2434,7 +2500,8 @@
           "id",
           "role",
           "status",
-          "detail"
+          "detail",
+          "updated_at"
         ],
         "properties": {
           "detail": {
@@ -2454,6 +2521,10 @@
           },
           "status": {
             "$ref": "#/components/schemas/WorkerStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
