@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use horizon_core::events::DomainEvent;
+use horizon_core::events::{DomainEvent, Event};
 use horizon_core::models::{
     default_eval_tasks, EvalReport, EvalTask, EvalTaskScore, RolloutRequest,
 };
@@ -56,16 +56,25 @@ impl EvalHarness {
                 horizon: Some(task.horizon),
                 success_criteria: task.success_criteria.clone(),
                 adapter_id: Some(adapter_id.into()),
+                infra_target: "eval".into(),
                 ..RolloutRequest::new(task.prompt.clone())
             };
-            let run_id = short_id("run");
+            // Eval rollouts bypass the queue: they run inline so the report
+            // is complete when the request returns.
+            let run_id = self.coordinator.submit_inline(&request)?;
             let cancel = self.coordinator.register_cancel(&run_id).await;
             let detail = self.coordinator.execute(&request, &run_id, cancel).await;
             self.coordinator.unregister_cancel(&run_id).await;
             let detail = detail?;
+            let terminal_reward = detail
+                .reward
+                .as_ref()
+                .map(|r| r.terminal_reward)
+                .unwrap_or(0.0);
             per_task.push(EvalTaskScore {
                 task_id: task.id.clone(),
-                terminal_reward: detail.reward.terminal_reward,
+                run_id,
+                terminal_reward,
             });
         }
         let mean = round_to(
@@ -84,8 +93,12 @@ impl EvalHarness {
         let mut updated = adapter;
         updated.eval_score = Some(mean);
         self.adapters.register(&updated)?;
-        self.bus
-            .publish(DomainEvent::eval_completed(report.clone()));
+        self.bus.publish(Event::for_adapter(
+            adapter_id,
+            DomainEvent::EvalCompleted {
+                report: report.clone(),
+            },
+        ));
         tracing::info!(
             adapter = adapter_id,
             mean,

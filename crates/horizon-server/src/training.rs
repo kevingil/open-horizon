@@ -1,7 +1,7 @@
 //! Training orchestration. A training run is a durable job: the record
-//! is persisted `pending`, the job runner leases it, and the trainer
-//! runs either in Rust (stub) or in the Python bridge (grpo, prime-rl).
-//! Metrics stream back as `training.metric` events.
+//! is persisted `queued`, the job runner leases it, and the trainer runs
+//! either in Rust (stub) or in the Python bridge (grpo, prime-rl).
+//! Metrics are persisted as they arrive and streamed as events.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use horizon_bridge::PythonBridge;
-use horizon_core::events::DomainEvent;
+use horizon_core::events::{DomainEvent, Event};
 use horizon_core::models::{
     AdapterRecord, HyperValue, Hyperparams, JobKind, RunDetail, TrainingMetricPoint,
     TrainingRunRecord, TrainingStatus,
@@ -56,11 +56,12 @@ impl TrainingService {
     pub fn trainer_name(&self) -> String {
         match self.settings.trainer_backend.as_str() {
             "stub" => "stub-trainer-v1".into(),
+            "grpo" => "grpo-lite-v1".into(),
             other => other.to_string(),
         }
     }
 
-    /// Persist a pending record and enqueue the job. Never blocks on training.
+    /// Persist a queued record and enqueue the job. Never blocks on training.
     pub fn start(
         &self,
         request: TrainingRequest,
@@ -68,7 +69,8 @@ impl TrainingService {
         let now = utc_now();
         let record = TrainingRunRecord {
             id: short_id("trun"),
-            status: TrainingStatus::Pending,
+            status: TrainingStatus::Queued,
+            trainer: self.trainer_name(),
             adapter_in: request.parent_adapter_id.clone(),
             adapter_out: None,
             sample_run_ids: request.sample_run_ids.clone(),
@@ -84,6 +86,12 @@ impl TrainingService {
             JobKind::Training,
             &json!({"training_run_id": record.id}),
         )?;
+        self.bus.training(
+            &record.id,
+            DomainEvent::TrainingQueued {
+                record: record.clone(),
+            },
+        );
         Ok(record)
     }
 
@@ -94,7 +102,6 @@ impl TrainingService {
         training_run_id: &str,
     ) -> Result<TrainingRunRecord, horizon_store::StoreError> {
         let Some(mut record) = self.store.get_training_run(training_run_id)? else {
-            tracing::warn!(training_run_id, "training.missing_record");
             return Err(horizon_store::StoreError::Corrupt(format!(
                 "training run {training_run_id} not found"
             )));
@@ -107,19 +114,27 @@ impl TrainingService {
         record.status = TrainingStatus::Running;
         record.updated_at = utc_now();
         self.store.save_training_run(&record)?;
-        self.bus
-            .publish(DomainEvent::training_started(record.clone()));
+        self.bus.training(
+            &record.id,
+            DomainEvent::TrainingStarted {
+                record: record.clone(),
+            },
+        );
 
         let metrics: Arc<std::sync::Mutex<Vec<TrainingMetricPoint>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
         let bus = self.bus.clone();
+        let store = self.store.clone();
         let id = record.id.clone();
         let acc = metrics.clone();
         let on_metric = move |point: TrainingMetricPoint| {
             acc.lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .push(point.clone());
-            bus.publish(DomainEvent::training_metric(&id, point));
+            if let Err(e) = store.append_training_metric(&id, &point) {
+                tracing::warn!(training_run_id = %id, error = %e, "training.metric.persist_failed");
+            }
+            bus.training(&id, DomainEvent::TrainingMetric { metric: point });
         };
 
         let result = match self.settings.trainer_backend.as_str() {
@@ -139,7 +154,8 @@ impl TrainingService {
                     .await
             }
         };
-        let collected = metrics.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        record.metrics = metrics.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        record.updated_at = utc_now();
         match result {
             Ok(adapter) => {
                 let adapter = self
@@ -148,24 +164,33 @@ impl TrainingService {
                     .map_err(horizon_store::StoreError::Io)?;
                 record.status = TrainingStatus::Completed;
                 record.adapter_out = Some(adapter.id.clone());
-                record.metrics = collected;
-                record.updated_at = utc_now();
                 self.store.save_training_run(&record)?;
-                self.bus
-                    .publish(DomainEvent::adapter_published(adapter.clone()));
-                self.bus
-                    .publish(DomainEvent::training_completed(record.clone()));
+                self.bus.publish(Event::for_adapter(
+                    &adapter.id,
+                    DomainEvent::AdapterPublished {
+                        adapter: adapter.clone(),
+                    },
+                ));
+                self.bus.training(
+                    &record.id,
+                    DomainEvent::TrainingCompleted {
+                        record: record.clone(),
+                    },
+                );
                 tracing::info!(training_run_id = %record.id, adapter = %adapter.id, steps = record.metrics.len(), samples = samples.len(), "training.completed");
             }
             Err(error) => {
                 tracing::error!(training_run_id = %record.id, error = %error, "training.failed");
                 record.status = TrainingStatus::Failed;
-                record.metrics = collected;
                 record.error = Some(error.clone());
-                record.updated_at = utc_now();
                 self.store.save_training_run(&record)?;
-                self.bus
-                    .publish(DomainEvent::training_failed(&record.id, error));
+                self.bus.training(
+                    &record.id,
+                    DomainEvent::TrainingFailed {
+                        record: record.clone(),
+                        error,
+                    },
+                );
             }
         }
         Ok(record)
@@ -243,6 +268,14 @@ impl TrainingService {
     }
 }
 
+fn sample_reward(sample: &RunDetail) -> f64 {
+    sample
+        .reward
+        .as_ref()
+        .map(|r| r.terminal_reward)
+        .unwrap_or(0.0)
+}
+
 /// Deterministic stand-in trainer: synthetic loss curve driven by the
 /// mean sample reward, copies parent weights, registers the adapter.
 async fn stub_train(
@@ -268,11 +301,7 @@ async fn stub_train(
     let baseline = if samples.is_empty() {
         0.0
     } else {
-        samples
-            .iter()
-            .map(|s| s.reward.terminal_reward)
-            .sum::<f64>()
-            / samples.len() as f64
+        samples.iter().map(sample_reward).sum::<f64>() / samples.len() as f64
     };
     let floor = (1.0 - baseline).max(0.05);
     for step in 0..steps {

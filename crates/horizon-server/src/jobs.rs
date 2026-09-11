@@ -151,19 +151,14 @@ async fn run_rollout_job(state: AppState, job: JobRecord) {
     heartbeat.cancel();
     match result {
         Ok(detail) => {
-            let cancelled = detail.trajectory.errors.iter().any(|e| e == "cancelled");
-            let status = if cancelled {
-                JobStatus::Cancelled
-            } else if detail.manifest.status == horizon_core::models::RunStatus::Completed {
-                JobStatus::Completed
-            } else {
-                JobStatus::Failed
+            let status = match detail.manifest.status {
+                horizon_core::models::RunStatus::Completed => JobStatus::Completed,
+                horizon_core::models::RunStatus::Cancelled => JobStatus::Cancelled,
+                _ => JobStatus::Failed,
             };
-            let _ = state.store.finish_job(
-                &job.id,
-                status,
-                detail.trajectory.errors.first().map(String::as_str),
-            );
+            let _ = state
+                .store
+                .finish_job(&job.id, status, detail.manifest.error.as_deref());
         }
         Err(e) => {
             tracing::error!(run_id = %payload.run_id, error = %e, "jobs.rollout.failed");
