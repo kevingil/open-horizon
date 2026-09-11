@@ -59,6 +59,13 @@ enum Command {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Serve a scripted OpenAI-compatible policy for smoke tests.
+    MockPolicy {
+        #[arg(long, default_value = "127.0.0.1:8090")]
+        bind: String,
+        #[arg(long, default_value_t = 400)]
+        latency_ms: u64,
+    },
 }
 
 #[tokio::main]
@@ -80,6 +87,14 @@ async fn main() -> anyhow::Result<()> {
             dry_run,
             list,
         } => replay(settings, run, rubric, dry_run, list).await,
+        Command::MockPolicy { bind, latency_ms } => {
+            logging::init("info", false, None);
+            horizon_server::mock_policy::serve(horizon_server::mock_policy::MockPolicyConfig {
+                bind,
+                latency_ms,
+            })
+            .await
+        }
         Command::Openapi { out } => {
             let doc = api::ApiDoc::openapi().to_pretty_json()?;
             match out {
@@ -257,15 +272,16 @@ async fn replay(
         result.rubric,
         if dry_run { "dry-run" } else { "saved" }
     );
-    let prov: String = result.previous.provenance.chars().take(60).collect();
-    println!(
-        "  was: {:+.4}  provenance={prov}",
-        result.previous.terminal_reward
-    );
-    println!(
-        "  now: {:+.4}  delta={:+.4}",
-        result.new.terminal_reward,
-        result.delta()
-    );
+    match &result.previous {
+        Some(prev) => println!(
+            "  was: {:+.4}  rubric={}",
+            prev.terminal_reward, prev.rubric
+        ),
+        None => println!("  was: (unscored)"),
+    }
+    match result.delta() {
+        Some(d) => println!("  now: {:+.4}  delta={d:+.4}", result.new.terminal_reward),
+        None => println!("  now: {:+.4}", result.new.terminal_reward),
+    }
     Ok(())
 }

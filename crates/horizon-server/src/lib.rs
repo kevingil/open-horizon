@@ -8,6 +8,7 @@ pub mod eval;
 pub mod event_bus;
 pub mod jobs;
 pub mod logging;
+pub mod mock_policy;
 pub mod settings;
 pub mod sglang;
 pub mod training;
