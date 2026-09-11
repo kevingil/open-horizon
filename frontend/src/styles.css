@@ -130,6 +130,12 @@ a {
   color: #a62b1f;
 }
 
+.badge-cancelled {
+  background: #e8e4dc;
+  color: #5a5348;
+}
+
+.badge-queued,
 .badge-pending {
   background: #dce6ff;
   color: #244aa5;
@@ -429,7 +435,7 @@ a {
 
 .log-row {
   display: grid;
-  grid-template-columns: 64px 88px 140px 120px 1fr;
+  grid-template-columns: 64px 88px 200px 110px 1fr;
   gap: 8px;
   align-items: center;
   padding: 4px 8px;
@@ -439,6 +445,13 @@ a {
 
 .log-row .log-time {
   color: #555f6b;
+}
+
+.log-row .log-logger,
+.log-row .log-run {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-row .log-logger {
@@ -490,4 +503,56 @@ a {
   .log-row .log-run {
     display: none;
   }
+}
+
+.launch-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.launch-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #d5d0c6;
+  border-radius: 6px;
+  font: inherit;
+  background: #fff;
+}
+
+.job-counts {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.job-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  border-radius: 6px;
+  background: #f3f0ea;
+}
+
+.job-count strong {
+  font-size: 1.3rem;
+}
+
+.job-count span {
+  font-size: 0.75rem;
+  color: #5a5348;
+}
+
+.job-count-running {
+  background: #e3ecfb;
+}
+
+.job-count-failed {
+  background: #f8e1de;
+}
+
+.job-count-completed {
+  background: #e0f1e6;
 }

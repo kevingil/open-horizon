@@ -1,15 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { LineChart, type ChartSeries } from "../components/LineChart";
-import {
-  createTrainingRun,
-  fetchBudget,
-  fetchRuntimeConfig,
-  type BudgetStatus,
-  type RuntimeConfig,
-} from "../lib/api";
-import { useLiveDashboard } from "../lib/store";
-import type { RunManifest } from "../lib/types";
+import { createRun, createTrainingRun, fetchBudget, fetchRuntimeConfig } from "../lib/api";
+import { useLiveDashboard, type RunProgress } from "../lib/store";
+import type { BudgetStatus, RunManifest, RuntimeConfig } from "../lib/types";
 
 export function DashboardPage() {
   const { snapshot, logs, progress, status, error } = useLiveDashboard();
@@ -17,7 +11,9 @@ export function DashboardPage() {
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [training, setTraining] = useState(false);
-  const [trainError, setTrainError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("Explore this repository and summarise what it does.");
+  const [launching, setLaunching] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -31,7 +27,7 @@ export function DashboardPage() {
       }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 15_000);
+    const timer = window.setInterval(() => void load(), 10_000);
     return () => {
       active = false;
       window.clearInterval(timer);
@@ -41,32 +37,45 @@ export function DashboardPage() {
   useEffect(() => {
     let active = true;
     fetchRuntimeConfig()
-      .then((c) => {
-        if (active) setConfig(c);
-      })
-      .catch(() => {
-        // non-fatal; pill just stays hidden
-      });
+      .then((c) => active && setConfig(c))
+      .catch(() => undefined);
     return () => {
       active = false;
     };
   }, []);
 
-  const rewardSeries = useMemo<ChartSeries[]>(() => {
-    if (!snapshot) return [];
-    // Build a time-ordered series of terminal rewards from manifests; we use
-    // RunDetail when available via the WebSocket completed event, but the
-    // dashboard snapshot only has manifests, so cost is the only signal here.
-    // Show estimated_cost_usd as a proxy on the runs panel; for *reward over
-    // time* we render whatever runs exist (sorted oldest -> newest by
-    // created_at) once we have detail. The detail array isn't on the
-    // snapshot, so we punt on per-run reward here and instead render cost.
-    const ordered = [...snapshot.runs].sort(
-      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at),
-    );
-    const points = ordered.map((r, i) => ({ x: i, y: r.estimated_cost_usd }));
-    return [{ name: "cost / run", color: "#244aa5", points }];
-  }, [snapshot]);
+  const scored = useMemo(
+    () =>
+      (snapshot?.runs ?? [])
+        .filter((r) => r.terminal_reward !== null && r.terminal_reward !== undefined)
+        .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at)),
+    [snapshot],
+  );
+
+  const rewardSeries = useMemo<ChartSeries[]>(
+    () => [
+      {
+        name: "terminal reward",
+        color: "#0e6a38",
+        points: scored.map((r, i) => ({ x: i + 1, y: r.terminal_reward ?? 0 })),
+      },
+    ],
+    [scored],
+  );
+
+  const costSeries = useMemo<ChartSeries[]>(() => {
+    let running = 0;
+    return [
+      {
+        name: "cumulative $",
+        color: "#244aa5",
+        points: scored.map((r, i) => {
+          running += r.cost_usd;
+          return { x: i + 1, y: running };
+        }),
+      },
+    ];
+  }, [scored]);
 
   const toggleSelected = (runId: string) => {
     setSelected((prev) => {
@@ -77,52 +86,104 @@ export function DashboardPage() {
     });
   };
 
+  const launch = async () => {
+    if (!prompt.trim()) return;
+    setLaunching(true);
+    setActionError(null);
+    try {
+      await createRun({ prompt: prompt.trim(), repo_snapshot: ".", infra_target: "local", success_criteria: [] });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
   const startTraining = async () => {
     if (selected.size === 0) return;
     setTraining(true);
-    setTrainError(null);
+    setActionError(null);
     try {
-      const result = await createTrainingRun({
-        sample_run_ids: Array.from(selected),
-      });
+      const result = await createTrainingRun({ sample_run_ids: Array.from(selected) });
       setSelected(new Set());
       navigate({ to: "/training/$trainingRunId", params: { trainingRunId: result.training_run_id } });
     } catch (err) {
-      setTrainError(err instanceof Error ? err.message : String(err));
+      setActionError(err instanceof Error ? err.message : String(err));
     } finally {
       setTraining(false);
     }
   };
 
-  if (error && !snapshot) {
-    return <section className="panel">Dashboard error: {error}</section>;
-  }
-  if (!snapshot) {
-    return <section className="panel">Loading dashboard...</section>;
-  }
+  if (error && !snapshot) return <section className="panel">Dashboard error: {error}</section>;
+  if (!snapshot) return <section className="panel">Loading dashboard...</section>;
 
-  const completed = snapshot.runs.filter((r) => r.status === "completed");
+  const jobs = snapshot.jobs;
 
   return (
     <div className="grid">
+      <section className="panel panel-wide">
+        <div className="panel-header">
+          <h2>Launch rollout</h2>
+          <span>
+            {config ? (
+              <span className="badge backend-pill" title={`policy: ${config.policy_name}`}>
+                {config.env_backend}
+                {config.env_backend === "verifiers" && config.verifiers_env_id ? ` · ${config.verifiers_env_id}` : ""}
+                {" · "}
+                {config.policy_name}
+                {" · "}
+                sandbox {config.sandbox}
+              </span>
+            ) : null}
+          </span>
+        </div>
+        <div className="launch-bar">
+          <input
+            className="launch-input"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void launch()}
+            placeholder="Task prompt"
+          />
+          <button className="action-btn action-btn-neutral" onClick={launch} disabled={launching}>
+            {launching ? "Queuing..." : "Queue rollout"}
+          </button>
+        </div>
+        {actionError ? <p className="errors">{actionError}</p> : null}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <h2>Jobs</h2>
+          <span>
+            <em>{status}</em>
+            {config ? ` · ${config.worker_id}` : ""}
+          </span>
+        </div>
+        <div className="job-counts">
+          <Count label="queued" value={jobs.queued} />
+          <Count label="running" value={jobs.running} />
+          <Count label="completed" value={jobs.completed} />
+          <Count label="failed" value={jobs.failed} />
+          <Count label="cancelled" value={jobs.cancelled} />
+        </div>
+        {config ? <p className="muted">max parallel rollouts: {config.max_parallel_rollouts}</p> : null}
+      </section>
+
       {budget && budget.cap_usd > 0 ? (
-        <section className="panel panel-wide budget-panel">
+        <section className="panel budget-panel">
           <div className="panel-header">
             <h2>Budget</h2>
             <span>
-              ${budget.spent_usd.toFixed(4)} / ${budget.cap_usd.toFixed(2)} ·{" "}
-              {budget.window_hours}h
+              ${budget.spent_usd.toFixed(4)} / ${budget.cap_usd.toFixed(2)} · {budget.window_hours}h
             </span>
           </div>
           <div className={`budget-bar ${budget.exceeded ? "budget-bar-over" : ""}`}>
-            <div
-              className="budget-fill"
-              style={{ width: `${Math.min(100, (budget.spent_usd / budget.cap_usd) * 100)}%` }}
-            />
+            <div className="budget-fill" style={{ width: `${Math.min(100, (budget.spent_usd / budget.cap_usd) * 100)}%` }} />
           </div>
           {budget.exceeded ? (
-            <p className="budget-warn">Cap reached - new rollouts will be rejected.</p>
-          ) : budget.remaining_usd !== null ? (
+            <p className="budget-warn">Cap reached: new rollouts will be rejected.</p>
+          ) : budget.remaining_usd !== null && budget.remaining_usd !== undefined ? (
             <p className="muted">${budget.remaining_usd.toFixed(4)} remaining</p>
           ) : null}
         </section>
@@ -131,34 +192,17 @@ export function DashboardPage() {
       <section className="panel">
         <div className="panel-header">
           <h2>Runs</h2>
-          <span>
-            {snapshot.runs.length} · <em>{status}</em>
-            {config ? (
-              <span className="badge backend-pill" title={`policy: ${config.policy_name}`}>
-                {config.env_backend}
-                {config.env_backend === "verifiers" && config.verifiers_env_id
-                  ? ` · ${config.verifiers_env_id}`
-                  : ""}
-                {" · "}
-                {config.policy_name}
-              </span>
-            ) : null}
-          </span>
+          <span>{snapshot.runs.length}</span>
         </div>
         {selected.size > 0 ? (
           <div className="train-bar">
             <span>{selected.size} selected</span>
-            <button
-              className="action-btn action-btn-neutral"
-              disabled={training}
-              onClick={startTraining}
-            >
+            <button className="action-btn action-btn-neutral" disabled={training} onClick={startTraining}>
               {training ? "Starting..." : "Train from selection"}
             </button>
             <button className="action-btn" onClick={() => setSelected(new Set())}>
               Clear
             </button>
-            {trainError ? <span className="errors">{trainError}</span> : null}
           </div>
         ) : null}
         <div className="stack">
@@ -186,6 +230,7 @@ export function DashboardPage() {
               <div>
                 <strong>{worker.role}</strong>
                 <p>{worker.id}</p>
+                <p className="muted">{worker.detail}</p>
               </div>
               <div className={`badge badge-${worker.status}`}>{worker.status}</div>
             </div>
@@ -193,33 +238,24 @@ export function DashboardPage() {
         </div>
       </section>
 
-      {completed.length > 1 ? (
-        <section className="panel panel-wide">
-          <div className="panel-header">
-            <h2>Cost over time</h2>
-            <span>{completed.length} runs</span>
-          </div>
-          <LineChart series={rewardSeries} xLabel="run #" yLabel="$" />
-        </section>
-      ) : null}
-
-      <section className="panel panel-wide">
-        <div className="panel-header">
-          <h2>Recent Artifacts</h2>
-          <span>{snapshot.recent_artifacts.length}</span>
-        </div>
-        <div className="stack">
-          {snapshot.recent_artifacts.map((artifact) => (
-            <div key={`${artifact.kind}-${artifact.path}`} className="row-card">
-              <div>
-                <strong>{artifact.name}</strong>
-                <p>{artifact.path}</p>
-              </div>
-              <div className="artifact-kind">{artifact.kind}</div>
+      {scored.length > 1 ? (
+        <>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Reward over time</h2>
+              <span>{scored.length} scored runs</span>
             </div>
-          ))}
-        </div>
-      </section>
+            <LineChart series={rewardSeries} xLabel="run #" yLabel="reward" yDomain={[-1, 1]} />
+          </section>
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Cumulative cost</h2>
+              <span>${scored.reduce((acc, r) => acc + r.cost_usd, 0).toFixed(4)}</span>
+            </div>
+            <LineChart series={costSeries} xLabel="run #" yLabel="$" />
+          </section>
+        </>
+      ) : null}
 
       <section className="panel panel-wide">
         <div className="panel-header">
@@ -231,16 +267,25 @@ export function DashboardPage() {
             .slice()
             .reverse()
             .map((line) => (
-              <div key={line.event_id} className="log-row">
-                <span className={`badge badge-${line.level.toLowerCase()}`}>{line.level}</span>
+              <div key={line.seq} className="log-row">
+                <span className={`badge badge-${line.payload.level.toLowerCase()}`}>{line.payload.level}</span>
                 <span className="log-time">{new Date(line.at).toLocaleTimeString()}</span>
-                <span className="log-logger">{line.logger}</span>
-                {line.run_id ? <span className="log-run">{line.run_id}</span> : null}
-                <span className="log-message">{line.message}</span>
+                <span className="log-logger">{line.payload.logger}</span>
+                <span className="log-run">{line.subject?.kind === "run" ? line.subject.id : ""}</span>
+                <span className="log-message">{line.payload.message}</span>
               </div>
             ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+function Count({ label, value }: { label: string; value: number }) {
+  return (
+    <div className={`job-count job-count-${label}`}>
+      <strong>{value}</strong>
+      <span>{label}</span>
     </div>
   );
 }
@@ -253,39 +298,40 @@ function RunCard({
   onToggleSelect,
 }: {
   run: RunManifest;
-  progress: { step_index: number; tool: string | null; tokens: number; cost_usd: number } | undefined;
+  progress: RunProgress | undefined;
   selected: boolean;
   selectable: boolean;
   onToggleSelect: () => void;
 }) {
+  const live = progress && (run.status === "running" || run.status === "queued");
   return (
     <div className={`run-card ${selected ? "run-card-selected" : ""}`}>
       <div className="run-title">
         <label className="run-select" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={selected}
-            disabled={!selectable}
-            onChange={onToggleSelect}
-          />
+          <input type="checkbox" checked={selected} disabled={!selectable} onChange={onToggleSelect} />
           <Link to="/runs/$runId" params={{ runId: run.id }}>
             <strong>{run.id}</strong>
           </Link>
         </label>
         <span className={`badge badge-${run.status}`}>{run.status}</span>
       </div>
-      <p className="run-model">{run.model_id}</p>
+      <p className="run-model">
+        {run.model_id} · profile {run.profile}
+      </p>
       <p>
-        {run.infra_target} · ${run.estimated_cost_usd.toFixed(4)}
+        {run.infra_target} · horizon {run.horizon} · {run.step_count} steps · {run.tokens.toLocaleString()} tok · $
+        {run.cost_usd.toFixed(4)}
+        {run.terminal_reward !== null && run.terminal_reward !== undefined ? ` · reward ${run.terminal_reward.toFixed(3)}` : ""}
         {run.adapter_id ? ` · ${run.adapter_id}` : ""}
       </p>
-      {progress ? (
+      {live ? (
         <p className="run-progress">
-          step {progress.step_index + 1}
+          turn {progress.turn + 1}/{run.horizon}
           {progress.tool ? ` · ${progress.tool}` : ""}
           {" · "}${progress.cost_usd.toFixed(4)} · {progress.tokens.toLocaleString()} tok
         </p>
       ) : null}
+      {run.error ? <p className="errors">{run.error}</p> : null}
     </div>
   );
 }
