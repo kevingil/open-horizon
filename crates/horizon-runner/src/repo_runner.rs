@@ -426,14 +426,11 @@ pub fn shell_split(input: &str) -> Result<Vec<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use horizon_core::models::ToolPermission;
-
     fn task() -> TaskSpec {
         TaskSpec {
             id: "task-1".into(),
             prompt: "p".into(),
             repo_snapshot: ".".into(),
-            tool_permissions: vec![ToolPermission::Read],
             horizon: 4,
             success_criteria: vec![],
         }

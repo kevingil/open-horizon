@@ -17,7 +17,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use horizon_core::models::{TaskSpec, TrajectoryRecord, TrajectoryStep};
+use horizon_core::models::{TaskSpec, Trajectory, TrajectoryStep};
 use horizon_core::pricing::{estimate_cost_usd, TokenUsage};
 use horizon_core::tools::{is_finish, openai_tool_definitions, tool_name_of};
 
@@ -65,7 +65,7 @@ pub struct RolloutParams {
 
 #[derive(Debug, Clone)]
 pub struct RolloutOutcome {
-    pub trajectory: TrajectoryRecord,
+    pub trajectory: Trajectory,
     pub usage: TokenUsage,
     pub reasoning_tokens: u64,
     pub cost_usd: f64,
@@ -151,7 +151,6 @@ async fn drive(
 
     for turn in 0..params.horizon {
         if is_cancelled() {
-            errors.push("cancelled".into());
             cancelled = true;
             break;
         }
@@ -164,7 +163,6 @@ async fn drive(
         let completion = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
-                errors.push("cancelled".into());
                 cancelled = true;
                 break;
             }
@@ -248,7 +246,6 @@ async fn drive(
         }
 
         if is_cancelled() {
-            errors.push("cancelled".into());
             cancelled = true;
             break;
         }
@@ -266,7 +263,7 @@ async fn drive(
     }
 
     Ok(RolloutOutcome {
-        trajectory: TrajectoryRecord::new(&params.task.id, steps, errors),
+        trajectory: Trajectory { steps, errors },
         usage,
         reasoning_tokens,
         cost_usd: estimate_cost_usd(&params.model, usage),
@@ -299,7 +296,6 @@ mod tests {
     use crate::repo_runner::RepoRunnerConfig;
     use crate::sandbox::Sandbox;
     use axum::{routing::post, Json, Router};
-    use horizon_core::models::ToolPermission;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
@@ -359,7 +355,6 @@ mod tests {
                 id: "task-1".into(),
                 prompt: "summarise".into(),
                 repo_snapshot: ".".into(),
-                tool_permissions: vec![ToolPermission::Read],
                 horizon: 4,
                 success_criteria: vec!["readme".into()],
             },
@@ -437,6 +432,9 @@ mod tests {
             started.elapsed() < Duration::from_secs(3),
             "cancel should not wait for the provider"
         );
-        assert_eq!(outcome.trajectory.errors, vec!["cancelled"]);
+        assert!(
+            outcome.trajectory.errors.is_empty(),
+            "cancellation is a status, not an error"
+        );
     }
 }
