@@ -1,4 +1,4 @@
-//! Event bus: every domain event is appended to the store's event log
+//! Event bus: every event is appended to the store's event log
 //! (durable, sequenced) and fanned out to in-process subscribers over a
 //! broadcast channel. Slow WebSocket clients lag and skip, never block.
 
@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::broadcast;
 
-use horizon_core::events::DomainEvent;
-use horizon_core::models::EventEnvelope;
+use horizon_core::events::{DomainEvent, Event, EventEnvelope, Subject};
 use horizon_store::Store;
 
 #[derive(Clone)]
@@ -26,8 +25,6 @@ struct Inner {
 impl EventBus {
     pub fn new(store: Arc<Store>, replay_size: usize, capacity: usize) -> Self {
         let (tx, _rx) = broadcast::channel(capacity);
-        // Warm the replay ring from the durable log so a restart still
-        // gives fresh dashboards recent context.
         let warm: VecDeque<EventEnvelope> =
             store.latest_events(replay_size).unwrap_or_default().into();
         Self {
@@ -42,7 +39,7 @@ impl EventBus {
 
     /// Append to the durable log, then broadcast. Synchronous on purpose:
     /// it is called from the tracing layer and from job tasks alike.
-    pub fn publish(&self, event: DomainEvent) -> i64 {
+    pub fn publish(&self, event: Event) -> i64 {
         let seq = match self.inner.store.append_event(&event) {
             Ok(seq) => seq,
             Err(e) => {
@@ -60,6 +57,18 @@ impl EventBus {
         }
         let _ = self.inner.tx.send(envelope);
         seq
+    }
+
+    pub fn run(&self, run_id: &str, event: DomainEvent) -> i64 {
+        self.publish(Event::for_run(run_id, event))
+    }
+
+    pub fn training(&self, training_run_id: &str, event: DomainEvent) -> i64 {
+        self.publish(Event::for_training(training_run_id, event))
+    }
+
+    pub fn subject(&self, subject: Option<Subject>, event: DomainEvent) -> i64 {
+        self.publish(Event::new(subject, event))
     }
 
     pub fn recent(&self) -> Vec<EventEnvelope> {
@@ -82,28 +91,35 @@ impl EventBus {
     pub fn subscribe(&self) -> broadcast::Receiver<EventEnvelope> {
         self.inner.tx.subscribe()
     }
-
-    pub fn subscriber_count(&self) -> usize {
-        self.inner.tx.receiver_count()
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn line(m: &str) -> Event {
+        Event::for_run(
+            "run-1",
+            DomainEvent::LogLine {
+                level: "INFO".into(),
+                logger: "t".into(),
+                message: m.into(),
+                context: Default::default(),
+            },
+        )
+    }
+
     #[tokio::test]
     async fn publish_is_durable_and_broadcast() {
         let store = Arc::new(Store::in_memory().unwrap());
         let bus = EventBus::new(store.clone(), 2, 16);
         let mut rx = bus.subscribe();
-        let s1 = bus.publish(DomainEvent::rollout_failed("run-1", "a"));
-        bus.publish(DomainEvent::rollout_failed("run-1", "b"));
-        bus.publish(DomainEvent::rollout_failed("run-1", "c"));
+        let s1 = bus.publish(line("a"));
+        bus.publish(line("b"));
+        bus.publish(line("c"));
         assert_eq!(bus.recent().len(), 2);
         assert_eq!(rx.recv().await.unwrap().seq, s1);
         assert_eq!(bus.since(s1, 10).len(), 2);
-        // A new bus over the same store warms its ring from the log.
         let bus2 = EventBus::new(store, 5, 16);
         assert_eq!(bus2.recent().len(), 3);
     }

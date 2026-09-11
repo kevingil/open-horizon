@@ -72,7 +72,7 @@ pub fn spawn_autoreload(
         loop {
             match rx.recv().await {
                 Ok(envelope) => {
-                    if let DomainEvent::AdapterPublished { adapter, .. } = envelope.event {
+                    if let DomainEvent::AdapterPublished { adapter } = envelope.event.event {
                         if reloader.load(&adapter.id, &adapter.path).await {
                             tracing::info!(adapter_id = %adapter.id, path = %adapter.path, "sglang.lora.loaded");
                         } else {

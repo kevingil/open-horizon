@@ -1,6 +1,6 @@
 //! Rollout coordinator: resolves profiles and horizons, enforces the
-//! budget, drives one of two execution paths, persists the result, and
-//! emits the lifecycle events the dashboard consumes.
+//! budget, drives one of two execution paths, persists progress as it
+//! happens, and emits the lifecycle events the dashboard consumes.
 //!
 //! - repo path: the Rust rollout loop against a sandboxed snapshot.
 //! - verifiers path: the Python bridge runs `Environment.run_rollout`
@@ -18,9 +18,8 @@ use tokio_util::sync::CancellationToken;
 use horizon_bridge::PythonBridge;
 use horizon_core::events::DomainEvent;
 use horizon_core::models::{
-    ArtifactRecord, RewardPenalty, RewardRecord, RolloutRequest, RunDetail, RunManifest, RunStatus,
-    TaskSpec, ToolPermission, TrajectoryRecord, TrajectoryStep, TurnTrainingRecord, WorkerRecord,
-    WorkerStatus,
+    RewardRecord, RewardSignal, RolloutRequest, RunDetail, RunManifest, RunStatus, TaskSpec,
+    Trajectory, TrajectoryStep, TurnTrainingRecord, WorkerRecord, WorkerStatus,
 };
 use horizon_core::pricing::{estimate_cost_usd, TokenUsage};
 use horizon_core::rewards::{self, RubricSpec};
@@ -58,6 +57,14 @@ pub enum CoordinatorError {
 pub struct RolloutJob {
     pub run_id: String,
     pub request: RolloutRequest,
+}
+
+/// How a finished rollout ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ending {
+    Completed,
+    Cancelled,
+    Failed,
 }
 
 pub struct Coordinator {
@@ -140,11 +147,57 @@ impl Coordinator {
         }
     }
 
-    /// Validate the request and enqueue a rollout job. Returns the run id
-    /// so the caller can cancel before the first event lands.
+    fn build_task(&self, request: &RolloutRequest) -> TaskSpec {
+        TaskSpec {
+            id: short_id("task"),
+            prompt: request.prompt.clone(),
+            repo_snapshot: request.repo_snapshot.clone(),
+            horizon: self.resolve_horizon(request),
+            success_criteria: request.success_criteria.clone(),
+        }
+    }
+
+    fn queued_manifest(
+        &self,
+        run_id: &str,
+        request: &RolloutRequest,
+        profile_name: &str,
+        profile: &PolicyProfile,
+        horizon: u32,
+    ) -> RunManifest {
+        let now = utc_now();
+        RunManifest {
+            id: run_id.into(),
+            profile: profile_name.into(),
+            model_id: self.model_id(profile),
+            adapter_id: request.adapter_id.clone(),
+            infra_target: request.infra_target.clone(),
+            status: RunStatus::Queued,
+            horizon,
+            tokens: 0,
+            cost_usd: 0.0,
+            terminal_reward: None,
+            step_count: 0,
+            error: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    /// Validate the request, persist a queued run, and enqueue the job.
+    /// Returns the run id so the caller can cancel before it starts.
     pub fn submit(&self, request: RolloutRequest) -> Result<String, CoordinatorError> {
-        self.resolve_profile(&request)?;
+        let (profile_name, profile) = self.resolve_profile(&request)?;
         let run_id = short_id("run");
+        let task = self.build_task(&request);
+        let manifest =
+            self.queued_manifest(&run_id, &request, &profile_name, profile, task.horizon);
+        self.store.save_run(&RunDetail {
+            manifest: manifest.clone(),
+            task,
+            trajectory: Trajectory::default(),
+            reward: None,
+        })?;
         let payload = serde_json::to_value(RolloutJob {
             run_id: run_id.clone(),
             request,
@@ -152,22 +205,55 @@ impl Coordinator {
         .map_err(|e| CoordinatorError::Other(e.to_string()))?;
         self.store
             .enqueue_job(&run_id, horizon_core::models::JobKind::Rollout, &payload)?;
+        self.bus
+            .run(&run_id, DomainEvent::RolloutQueued { manifest });
+        Ok(run_id)
+    }
+
+    /// Persist a queued run for a caller that will `execute` it directly
+    /// (the eval harness). No job row is created.
+    pub fn submit_inline(&self, request: &RolloutRequest) -> Result<String, CoordinatorError> {
+        let (profile_name, profile) = self.resolve_profile(request)?;
+        let run_id = short_id("run");
+        let task = self.build_task(request);
+        let manifest = self.queued_manifest(&run_id, request, &profile_name, profile, task.horizon);
+        self.store.save_run(&RunDetail {
+            manifest: manifest.clone(),
+            task,
+            trajectory: Trajectory::default(),
+            reward: None,
+        })?;
+        self.bus
+            .run(&run_id, DomainEvent::RolloutQueued { manifest });
         Ok(run_id)
     }
 
     /// Flag a run for cancellation: the job row (visible to every
     /// replica) and the in-process token (interrupts generation now).
-    pub async fn request_cancel(&self, run_id: &str) -> bool {
-        if let Ok(Some(existing)) = self.store.get_run(run_id) {
-            if existing.manifest.status.is_terminal() {
-                return false;
-            }
+    /// A queued run is cancelled immediately.
+    pub async fn request_cancel(&self, run_id: &str) -> Result<bool, CoordinatorError> {
+        let Some(mut manifest) = self.store.get_manifest(run_id)? else {
+            return Ok(false);
+        };
+        if manifest.status.is_terminal() {
+            return Ok(false);
         }
-        let accepted = self.store.request_cancel(run_id).unwrap_or(true);
+        let accepted = self.store.request_cancel(run_id)?;
         if let Some(token) = self.cancels.lock().await.get(run_id) {
             token.cancel();
+        } else if manifest.status == RunStatus::Queued {
+            manifest.status = RunStatus::Cancelled;
+            manifest.updated_at = utc_now();
+            if let Some(detail) = self.store.get_run(run_id)? {
+                self.store.save_run(&RunDetail {
+                    manifest: manifest.clone(),
+                    ..detail
+                })?;
+            }
+            self.bus
+                .run(run_id, DomainEvent::RolloutCancelled { manifest });
         }
-        accepted
+        Ok(accepted)
     }
 
     pub async fn register_cancel(&self, run_id: &str) -> CancellationToken {
@@ -184,74 +270,49 @@ impl Coordinator {
     }
 
     /// Run one rollout to completion. Used by the job runner and the eval
-    /// harness. Never returns Err for policy or environment failures:
-    /// those become a failed `RunDetail` plus `rollout.failed`.
+    /// harness. Policy and environment failures become a failed run plus
+    /// `rollout.failed`, never an Err.
     pub async fn execute(
         &self,
         request: &RolloutRequest,
         run_id: &str,
         cancel: CancellationToken,
     ) -> Result<RunDetail, CoordinatorError> {
-        if let Some(detail) = self.reject_if_over_budget(request, run_id)? {
-            return Ok(detail);
-        }
         let (profile_name, profile) = self.resolve_profile(request)?;
         let profile = profile.clone();
-        let now = utc_now();
-        let task = TaskSpec {
-            id: short_id("task"),
-            prompt: request.prompt.clone(),
-            repo_snapshot: request.repo_snapshot.clone(),
-            tool_permissions: vec![
-                ToolPermission::Read,
-                ToolPermission::Search,
-                ToolPermission::Terminal,
-            ],
-            horizon: self.resolve_horizon(request),
-            success_criteria: if request.success_criteria.is_empty() {
-                vec!["manual review".into()]
-            } else {
-                request.success_criteria.clone()
-            },
-        };
-        let manifest = RunManifest {
-            id: run_id.to_string(),
-            model_id: self.model_id(&profile),
-            adapter_id: request.adapter_id.clone(),
-            dataset_slice: "bootstrap".into(),
-            infra_target: request.infra_target.clone(),
-            seed: 7,
-            status: RunStatus::Running,
-            created_at: now,
-            updated_at: now,
-            estimated_cost_usd: if request.infra_target == "mac-local" {
-                0.03
-            } else {
-                0.72
-            },
-        };
-        // Persist the running row first so a crash leaves a visible,
-        // recoverable run instead of nothing.
-        let running = RunDetail {
+        // Reuse the task persisted at submit time so ids stay stable across retries.
+        let existing = self.store.get_run(run_id)?;
+        let task = existing
+            .as_ref()
+            .map(|d| d.task.clone())
+            .unwrap_or_else(|| self.build_task(request));
+        let mut manifest = existing.map(|d| d.manifest).unwrap_or_else(|| {
+            self.queued_manifest(run_id, request, &profile_name, &profile, task.horizon)
+        });
+
+        if let Some(detail) = self.reject_if_over_budget(&task, &mut manifest)? {
+            return Ok(detail);
+        }
+        manifest.status = RunStatus::Running;
+        manifest.updated_at = utc_now();
+        self.store.save_run(&RunDetail {
             manifest: manifest.clone(),
             task: task.clone(),
-            trajectory: TrajectoryRecord::new(&task.id, vec![], vec![]),
-            reward: rewards::score(
-                &task,
-                &TrajectoryRecord::new(&task.id, vec![], vec![]),
-                &self.rubric,
-            ),
-            artifacts: default_artifacts(run_id),
-        };
-        self.store.save_run(&running)?;
-        self.bus
-            .publish(DomainEvent::rollout_started(run_id, manifest.clone()));
+            trajectory: Trajectory::default(),
+            reward: None,
+        })?;
+        self.bus.run(
+            run_id,
+            DomainEvent::RolloutStarted {
+                manifest: manifest.clone(),
+            },
+        );
         self.publish_worker(
             "worker-rollout-local",
             "rollout",
             WorkerStatus::Running,
             Some(run_id),
-            "Local rollout worker is active.",
+            "Rollout worker is active.",
         )?;
 
         let result = match profile.routes_to {
@@ -269,38 +330,27 @@ impl Coordinator {
             Err(err) => {
                 let message = err.to_string();
                 tracing::error!(run_id, error = %message, "rollout.failed");
-                let trajectory = TrajectoryRecord::new(&task.id, vec![], vec![message.clone()]);
-                let reward = rewards::score(&task, &trajectory, &self.rubric);
-                let detail = RunDetail {
-                    manifest: RunManifest {
-                        status: RunStatus::Failed,
-                        updated_at: utc_now(),
-                        ..manifest
-                    },
+                let trajectory = Trajectory {
+                    steps: vec![],
+                    errors: vec![message.clone()],
+                };
+                self.finish(
+                    run_id,
+                    manifest,
                     task,
                     trajectory,
-                    reward,
-                    artifacts: default_artifacts(run_id),
-                };
-                self.store.save_run(&detail)?;
-                self.publish_worker(
-                    "worker-rollout-local",
-                    "rollout",
-                    WorkerStatus::Failed,
-                    Some(run_id),
-                    &format!("Rollout failed: {message}"),
-                )?;
-                self.bus
-                    .publish(DomainEvent::rollout_failed(run_id, message));
-                Ok(detail)
+                    None,
+                    Ending::Failed,
+                    Some(message),
+                )
             }
         }
     }
 
     fn reject_if_over_budget(
         &self,
-        request: &RolloutRequest,
-        run_id: &str,
+        task: &TaskSpec,
+        manifest: &mut RunManifest,
     ) -> Result<Option<RunDetail>, CoordinatorError> {
         let cap = self.settings.daily_budget_usd;
         if cap <= 0.0 {
@@ -315,49 +365,102 @@ impl Coordinator {
         let error = format!(
             "daily budget exceeded: ${spent:.4} spent in the last {window}h >= cap ${cap:.4}"
         );
-        let now = utc_now();
-        let model_id = self
-            .resolve_profile(request)
-            .map(|(_, p)| self.model_id(p))
-            .unwrap_or_else(|_| self.policy_name());
-        let task = TaskSpec {
-            id: short_id("task"),
-            prompt: request.prompt.clone(),
-            repo_snapshot: request.repo_snapshot.clone(),
-            tool_permissions: vec![ToolPermission::Read],
-            horizon: self.resolve_horizon(request),
-            success_criteria: if request.success_criteria.is_empty() {
-                vec!["(budget-blocked)".into()]
-            } else {
-                request.success_criteria.clone()
+        self.bus.run(
+            &manifest.id,
+            DomainEvent::BudgetExceeded {
+                spent_usd: spent,
+                cap_usd: cap,
+                window_hours: window,
             },
+        );
+        tracing::warn!(spent, cap, "rollout.rejected.budget");
+        let trajectory = Trajectory {
+            steps: vec![],
+            errors: vec![error.clone()],
         };
-        let trajectory = TrajectoryRecord::new(&task.id, vec![], vec![error.clone()]);
-        let reward = rewards::score(&task, &trajectory, &self.rubric);
+        let run_id = manifest.id.clone();
+        self.finish(
+            &run_id,
+            manifest.clone(),
+            task.clone(),
+            trajectory,
+            None,
+            Ending::Failed,
+            Some(error),
+        )
+        .map(Some)
+    }
+
+    /// Persist the terminal state and emit the matching event.
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        &self,
+        run_id: &str,
+        mut manifest: RunManifest,
+        task: TaskSpec,
+        trajectory: Trajectory,
+        reward: Option<RewardRecord>,
+        ending: Ending,
+        error: Option<String>,
+    ) -> Result<RunDetail, CoordinatorError> {
+        manifest.status = match ending {
+            Ending::Completed => RunStatus::Completed,
+            Ending::Cancelled => RunStatus::Cancelled,
+            Ending::Failed => RunStatus::Failed,
+        };
+        manifest.updated_at = utc_now();
+        manifest.step_count = trajectory.steps.len() as u32;
+        manifest.terminal_reward = reward.as_ref().map(|r| r.terminal_reward);
+        manifest.error = error.clone();
         let detail = RunDetail {
-            manifest: RunManifest {
-                id: run_id.into(),
-                model_id,
-                adapter_id: request.adapter_id.clone(),
-                dataset_slice: "bootstrap".into(),
-                infra_target: request.infra_target.clone(),
-                seed: 7,
-                status: RunStatus::Failed,
-                created_at: now,
-                updated_at: now,
-                estimated_cost_usd: 0.0,
-            },
+            manifest: manifest.clone(),
             task,
             trajectory,
             reward,
-            artifacts: default_artifacts(run_id),
         };
         self.store.save_run(&detail)?;
-        self.bus
-            .publish(DomainEvent::budget_exceeded(run_id, spent, cap, window));
-        self.bus.publish(DomainEvent::rollout_failed(run_id, error));
-        tracing::warn!(spent, cap, "rollout.rejected.budget");
-        Ok(Some(detail))
+        match ending {
+            Ending::Completed => {
+                self.publish_worker(
+                    "worker-rollout-local",
+                    "rollout",
+                    WorkerStatus::Idle,
+                    Some(run_id),
+                    "Rollout finished; worker idle.",
+                )?;
+                self.bus
+                    .run(run_id, DomainEvent::RolloutCompleted { manifest });
+            }
+            Ending::Cancelled => {
+                self.publish_worker(
+                    "worker-rollout-local",
+                    "rollout",
+                    WorkerStatus::Idle,
+                    Some(run_id),
+                    "Rollout cancelled; worker idle.",
+                )?;
+                self.bus
+                    .run(run_id, DomainEvent::RolloutCancelled { manifest });
+            }
+            Ending::Failed => {
+                let msg = error.unwrap_or_else(|| "rollout failed".into());
+                self.publish_worker(
+                    "worker-rollout-local",
+                    "rollout",
+                    WorkerStatus::Failed,
+                    Some(run_id),
+                    &format!("Rollout failed: {msg}"),
+                )?;
+                self.bus.run(
+                    run_id,
+                    DomainEvent::RolloutFailed {
+                        manifest,
+                        error: msg,
+                    },
+                );
+            }
+        }
+        Ok(detail)
     }
 
     async fn client_for(&self, name: &str, profile: &PolicyProfile) -> OpenAiClient {
@@ -406,12 +509,15 @@ impl Coordinator {
         let bridge = self.bridge.clone();
         let tokenizer = self.settings.recorder_tokenizer.clone();
         let model_name = profile.model.clone();
-        let run_id_owned = run_id.to_string();
+        let rid = run_id.to_string();
         let forwarder = tokio::spawn(async move {
             while let Some(ev) = rx.recv().await {
                 match ev {
                     RolloutEvent::Step(step) => {
-                        bus.publish(DomainEvent::step_recorded(&run_id_owned, step));
+                        if let Err(e) = store.append_step(&rid, &step) {
+                            tracing::warn!(run_id = %rid, error = %e, "step.persist_failed");
+                        }
+                        bus.run(&rid, DomainEvent::StepRecorded { step });
                     }
                     RolloutEvent::Progress {
                         turn,
@@ -419,13 +525,15 @@ impl Coordinator {
                         cost_usd,
                         tool,
                     } => {
-                        bus.publish(DomainEvent::progress_ticked(
-                            &run_id_owned,
-                            turn,
-                            tool,
-                            tokens,
-                            cost_usd,
-                        ));
+                        bus.run(
+                            &rid,
+                            DomainEvent::ProgressTicked {
+                                turn,
+                                tool,
+                                tokens,
+                                cost_usd,
+                            },
+                        );
                     }
                     RolloutEvent::Turn {
                         step_index,
@@ -438,7 +546,7 @@ impl Coordinator {
                             &store,
                             &tokenizer,
                             &model_name,
-                            &run_id_owned,
+                            &rid,
                             step_index,
                             prompt_snapshot,
                             completion,
@@ -460,79 +568,59 @@ impl Coordinator {
         let outcome = outcome?;
 
         let reward = rewards::score(task, &outcome.trajectory, &self.rubric);
-        self.bus
-            .publish(DomainEvent::reward_computed(run_id, &reward));
-        let failed = outcome.cancelled || outcome.token_overflow;
-        let detail = RunDetail {
-            manifest: RunManifest {
-                status: if failed {
-                    RunStatus::Failed
-                } else {
-                    RunStatus::Completed
-                },
-                updated_at: utc_now(),
-                estimated_cost_usd: if outcome.cost_usd > 0.0 {
-                    outcome.cost_usd
-                } else {
-                    manifest.estimated_cost_usd
-                },
-                ..manifest.clone()
+        self.bus.run(
+            run_id,
+            DomainEvent::RewardComputed {
+                reward: reward.clone(),
             },
-            task: task.clone(),
-            trajectory: outcome.trajectory.clone(),
-            reward: reward.clone(),
-            artifacts: default_artifacts(run_id),
-        };
-        self.store.save_run(&detail)?;
+        );
+        let mut manifest = manifest.clone();
+        manifest.tokens = outcome.total_tokens();
+        manifest.cost_usd = outcome.cost_usd;
         let steps = outcome.trajectory.steps.len();
         if outcome.cancelled {
-            self.publish_worker(
-                "worker-rollout-local",
-                "rollout",
-                WorkerStatus::Failed,
-                Some(run_id),
-                "Rollout cancelled.",
-            )?;
-            self.bus.publish(DomainEvent::rollout_cancelled(run_id));
             tracing::info!(run_id, steps, "rollout.cancelled");
-        } else if outcome.token_overflow {
-            let tokens = outcome.total_tokens();
-            self.publish_worker(
-                "worker-rollout-local",
-                "rollout",
-                WorkerStatus::Failed,
-                Some(run_id),
-                &format!("repo rollout exceeded token budget ({tokens})."),
-            )?;
-            self.bus.publish(DomainEvent::rollout_failed(
+            self.finish(
                 run_id,
-                format!("token budget exceeded: {tokens}"),
-            ));
+                manifest,
+                task.clone(),
+                outcome.trajectory,
+                Some(reward),
+                Ending::Cancelled,
+                None,
+            )
+        } else if outcome.token_overflow {
+            let error = format!(
+                "token budget exceeded: {} > {}",
+                outcome.total_tokens(),
+                self.settings.max_tokens_per_run
+            );
+            self.finish(
+                run_id,
+                manifest,
+                task.clone(),
+                outcome.trajectory,
+                Some(reward),
+                Ending::Failed,
+                Some(error),
+            )
         } else {
-            self.publish_worker(
-                "worker-rollout-local",
-                "rollout",
-                WorkerStatus::Idle,
-                Some(run_id),
-                "Rollout finished; worker idle.",
-            )?;
-            self.publish_worker(
-                "worker-reward-local",
-                "reward",
-                WorkerStatus::Idle,
-                Some(run_id),
-                "Reward pipeline is available for replay.",
-            )?;
-            self.bus
-                .publish(DomainEvent::rollout_completed(run_id, detail.clone()));
             tracing::info!(
                 run_id,
                 terminal_reward = reward.terminal_reward,
                 steps,
                 "rollout.completed"
             );
+            self.finish(
+                run_id,
+                manifest,
+                task.clone(),
+                outcome.trajectory,
+                Some(reward),
+                Ending::Completed,
+                None,
+            )
         }
-        Ok(detail)
     }
 
     async fn verifiers_limit(&self, name: &str, max: usize) -> Arc<Semaphore> {
@@ -553,8 +641,23 @@ impl Coordinator {
         manifest: &RunManifest,
         cancel: &CancellationToken,
     ) -> Result<RunDetail, CoordinatorError> {
+        let cancelled_before_start = || {
+            let trajectory = Trajectory {
+                steps: vec![],
+                errors: vec![],
+            };
+            self.finish(
+                run_id,
+                manifest.clone(),
+                task.clone(),
+                trajectory,
+                None,
+                Ending::Cancelled,
+                None,
+            )
+        };
         if cancel.is_cancelled() || self.store.is_cancel_requested(run_id)? {
-            return self.finish_cancelled_before_start(task, run_id, manifest);
+            return cancelled_before_start();
         }
         let limit = self
             .verifiers_limit(profile_name, profile.max_concurrent)
@@ -577,7 +680,7 @@ impl Coordinator {
             "api_key": profile.resolve_api_key(),
             "env_id": profile.env_id,
             "env_args": profile.env_args,
-            "sampling_args": {"max_tokens": 2048},
+            "sampling_args": {"max_tokens": profile.max_output_tokens},
             "timeout_s": profile.rollout_timeout_s,
         });
         let timeout = profile
@@ -588,7 +691,7 @@ impl Coordinator {
             .call("verifiers.rollout", params, timeout, |_, _| {});
         let result = tokio::select! {
             biased;
-            _ = cancel.cancelled() => return self.finish_cancelled_before_start(task, run_id, manifest),
+            _ = cancel.cancelled() => return cancelled_before_start(),
             r = call => r?,
         };
         let outcome: VerifiersOutcome = serde_json::from_value(result)
@@ -600,8 +703,9 @@ impl Coordinator {
             .map(|s| TrajectoryStep::new(s.index, &s.actor, &s.kind, s.content))
             .collect();
         for step in &steps {
+            self.store.append_step(run_id, step)?;
             self.bus
-                .publish(DomainEvent::step_recorded(run_id, step.clone()));
+                .run(run_id, DomainEvent::StepRecorded { step: step.clone() });
         }
         let usage = TokenUsage {
             input_tokens: outcome.input_tokens,
@@ -610,122 +714,79 @@ impl Coordinator {
         };
         let total_tokens = usage.total();
         let cost_usd = estimate_cost_usd(&profile.model, usage);
-        self.bus.publish(DomainEvent::progress_ticked(
+        self.bus.run(
             run_id,
-            steps.len().saturating_sub(1) as u32,
-            Some("verifiers".into()),
-            total_tokens,
-            cost_usd,
-        ));
+            DomainEvent::ProgressTicked {
+                turn: steps.len().saturating_sub(1) as u32,
+                tool: Some("verifiers".into()),
+                tokens: total_tokens,
+                cost_usd,
+            },
+        );
 
         let token_overflow = total_tokens > self.settings.max_tokens_per_run;
-        let mut errors = outcome.errors;
-        if token_overflow {
-            errors.push(format!(
-                "token budget exceeded: {total_tokens} > {}",
-                self.settings.max_tokens_per_run
-            ));
-        }
-        let trajectory = TrajectoryRecord::new(&task.id, steps, errors);
-        let reward = build_verifiers_reward(
-            &trajectory.id,
-            outcome.terminal_reward,
-            &outcome.signals,
-            &profile.env_id,
-        );
-        self.bus
-            .publish(DomainEvent::reward_computed(run_id, &reward));
-        let detail = RunDetail {
-            manifest: RunManifest {
-                status: if token_overflow {
-                    RunStatus::Failed
-                } else {
-                    RunStatus::Completed
-                },
-                updated_at: utc_now(),
-                estimated_cost_usd: if cost_usd > 0.0 {
-                    cost_usd
-                } else {
-                    manifest.estimated_cost_usd
-                },
-                ..manifest.clone()
-            },
-            task: task.clone(),
-            trajectory,
-            reward: reward.clone(),
-            artifacts: default_artifacts(run_id),
+        let trajectory = Trajectory {
+            steps,
+            errors: outcome.errors,
         };
-        self.store.save_run(&detail)?;
-        if token_overflow {
-            self.publish_worker(
-                "worker-rollout-local",
-                "rollout",
-                WorkerStatus::Failed,
-                Some(run_id),
-                &format!("verifiers rollout exceeded token budget ({total_tokens})."),
-            )?;
-            self.bus.publish(DomainEvent::rollout_failed(
-                run_id,
-                format!("token budget exceeded: {total_tokens}"),
-            ));
-        } else {
-            self.publish_worker(
-                "worker-rollout-local",
-                "rollout",
-                WorkerStatus::Idle,
-                Some(run_id),
-                "verifiers rollout finished; worker idle.",
-            )?;
-            self.publish_worker(
-                "worker-reward-local",
-                "reward",
-                WorkerStatus::Idle,
-                Some(run_id),
-                "Reward pipeline is available for replay.",
-            )?;
-            self.bus
-                .publish(DomainEvent::rollout_completed(run_id, detail.clone()));
-        }
+        let reward = RewardRecord {
+            terminal_reward: round_to(outcome.terminal_reward.clamp(-1.0, 1.0), 4),
+            rubric: format!("verifiers-{}", profile.env_id),
+            source: "verifiers".into(),
+            signals: outcome
+                .signals
+                .into_iter()
+                .map(|s| RewardSignal {
+                    name: s.name,
+                    value: s.value,
+                    weight: s.weight,
+                    reason: s.reason,
+                })
+                .collect(),
+            audit_flags: vec![],
+        };
+        self.bus.run(
+            run_id,
+            DomainEvent::RewardComputed {
+                reward: reward.clone(),
+            },
+        );
+        let mut manifest = manifest.clone();
+        manifest.tokens = total_tokens;
+        manifest.cost_usd = cost_usd;
         tracing::info!(
             run_id,
             terminal_reward = reward.terminal_reward,
-            steps = detail.trajectory.steps.len(),
+            steps = trajectory.steps.len(),
             tokens = total_tokens,
             cost_usd,
             "rollout.completed.verifiers"
         );
-        Ok(detail)
-    }
-
-    fn finish_cancelled_before_start(
-        &self,
-        task: &TaskSpec,
-        run_id: &str,
-        manifest: &RunManifest,
-    ) -> Result<RunDetail, CoordinatorError> {
-        let trajectory = TrajectoryRecord::new(&task.id, vec![], vec!["cancelled".into()]);
-        let reward = rewards::score(task, &trajectory, &self.rubric);
-        let detail = RunDetail {
-            manifest: RunManifest {
-                status: RunStatus::Failed,
-                updated_at: utc_now(),
-                ..manifest.clone()
-            },
-            task: task.clone(),
-            trajectory,
-            reward,
-            artifacts: default_artifacts(run_id),
-        };
-        self.store.save_run(&detail)?;
-        self.bus.publish(DomainEvent::rollout_cancelled(run_id));
-        self.publish_worker(
-            "worker-rollout-local",
-            "rollout",
-            WorkerStatus::Failed,
-            Some(run_id),
-            "Rollout cancelled before verifiers rollout started.",
-        )?;
-        Ok(detail)
+        if token_overflow {
+            let error = format!(
+                "token budget exceeded: {total_tokens} > {}",
+                self.settings.max_tokens_per_run
+            );
+            self.finish(
+                run_id,
+                manifest,
+                task.clone(),
+                trajectory,
+                Some(reward),
+                Ending::Failed,
+                Some(error),
+            )
+        } else {
+            self.finish(
+                run_id,
+                manifest,
+                task.clone(),
+                trajectory,
+                Some(reward),
+                Ending::Completed,
+                None,
+            )
+        }
     }
 
     fn publish_worker(
@@ -742,10 +803,13 @@ impl Coordinator {
             status,
             run_id: run_id.map(str::to_string),
             detail: detail.into(),
+            updated_at: utc_now(),
         };
         self.store.upsert_worker(&worker)?;
-        self.bus
-            .publish(DomainEvent::worker_updated(run_id, worker));
+        self.bus.subject(
+            Some(horizon_core::events::Subject::Worker { id: id.into() }),
+            DomainEvent::WorkerUpdated { worker },
+        );
         Ok(())
     }
 }
@@ -788,35 +852,6 @@ struct VerifiersOutcome {
     output_tokens: u64,
 }
 
-fn build_verifiers_reward(
-    trajectory_id: &str,
-    terminal: f64,
-    signals: &[VerifiersSignal],
-    env_id: &str,
-) -> RewardRecord {
-    let payload = json!({
-        "source": "verifiers-rubric",
-        "rubric": format!("verifiers-{env_id}"),
-        "signals": signals.iter().map(|s| json!({"name": s.name, "value": s.value, "weight": s.weight, "reason": s.reason})).collect::<Vec<_>>(),
-    });
-    RewardRecord {
-        trajectory_id: trajectory_id.into(),
-        terminal_reward: round_to(terminal.clamp(-1.0, 1.0), 4),
-        step_rewards: vec![],
-        penalties: signals
-            .iter()
-            .filter(|s| s.value < 0.0)
-            .map(|s| RewardPenalty {
-                code: s.name.clone(),
-                value: s.value * s.weight,
-                reason: s.reason.clone(),
-            })
-            .collect(),
-        audit_flags: vec![],
-        provenance: payload.to_string(),
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn record_turn(
     bridge: &PythonBridge,
@@ -852,8 +887,6 @@ async fn record_turn(
                     .unwrap_or_default()
             };
             let prompt_ids = ids("prompt_ids");
-            let attention_mask = ids("attention_mask");
-            let loss_mask = ids("loss_mask");
             let record = TurnTrainingRecord {
                 id: short_id("turn"),
                 run_id: run_id.into(),
@@ -861,8 +894,8 @@ async fn record_turn(
                 token_count: prompt_ids.len() as u32,
                 prompt_ids,
                 completion_ids: ids("completion_ids"),
-                attention_mask,
-                loss_mask,
+                attention_mask: ids("attention_mask"),
+                loss_mask: ids("loss_mask"),
                 sampling_args,
                 model_name: model_name.into(),
                 created_at: utc_now(),
@@ -875,29 +908,20 @@ async fn record_turn(
     }
 }
 
-pub fn default_artifacts(run_id: &str) -> Vec<ArtifactRecord> {
-    ["manifest", "trajectory", "reward"]
-        .iter()
-        .map(|kind| ArtifactRecord {
-            name: format!("{run_id}-{kind}.json"),
-            kind: kind.to_string(),
-            path: format!("artifacts/{run_id}/{kind}.json"),
-        })
-        .collect()
-}
-
 /// Rescore a stored run against a registered rubric. Pure over
 /// (task, trajectory); never re-executes anything.
 pub struct RescoreResult {
     pub run_id: String,
     pub rubric: String,
-    pub previous: RewardRecord,
+    pub previous: Option<RewardRecord>,
     pub new: RewardRecord,
 }
 
 impl RescoreResult {
-    pub fn delta(&self) -> f64 {
-        round_to(self.new.terminal_reward - self.previous.terminal_reward, 6)
+    pub fn delta(&self) -> Option<f64> {
+        self.previous
+            .as_ref()
+            .map(|p| round_to(self.new.terminal_reward - p.terminal_reward, 6))
     }
 }
 
@@ -924,10 +948,7 @@ pub fn rescore_run(
         .ok_or_else(|| RescoreError::UnknownRubric(rubric.into(), rewards::rubric_names()))?;
     let new = rewards::score(&detail.task, &detail.trajectory, &spec);
     if persist {
-        store.save_run(&RunDetail {
-            reward: new.clone(),
-            ..detail.clone()
-        })?;
+        store.save_reward(run_id, &new)?;
     }
     Ok(RescoreResult {
         run_id: run_id.into(),

@@ -5,12 +5,12 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use tracing::field::{Field, Visit};
-use tracing::{Event, Subscriber};
+use tracing::{Event as TraceEvent, Subscriber};
 use tracing_subscriber::layer::{Context, Layer};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
-use horizon_core::events::{DomainEvent, EventMeta};
+use horizon_core::events::{DomainEvent, Event, Subject};
 
 use crate::event_bus::EventBus;
 
@@ -45,7 +45,7 @@ impl Visit for FieldCollector {
 }
 
 impl<S: Subscriber> Layer<S> for BusLayer {
-    fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+    fn on_event(&self, event: &TraceEvent<'_>, _ctx: Context<'_, S>) {
         // Only our own crates; dependency chatter stays off the wire.
         let target = event.metadata().target();
         if !target.starts_with("horizon") {
@@ -60,13 +60,16 @@ impl<S: Subscriber> Layer<S> for BusLayer {
         } else {
             collector.message.clone()
         };
-        self.bus.publish(DomainEvent::LogLine {
-            meta: EventMeta::for_run(run_id.as_deref()),
-            level: event.metadata().level().to_string().to_uppercase(),
-            logger: target.to_string(),
-            message,
-            context: collector.fields,
-        });
+        let subject = run_id.map(|id| Subject::Run { id });
+        self.bus.publish(Event::new(
+            subject,
+            DomainEvent::LogLine {
+                level: event.metadata().level().to_string().to_uppercase(),
+                logger: target.to_string(),
+                message,
+                context: collector.fields,
+            },
+        ));
     }
 }
 
