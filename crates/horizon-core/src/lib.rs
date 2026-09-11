@@ -2,6 +2,8 @@
 
 pub mod events;
 pub mod models;
+pub mod pricing;
+pub mod scheduling;
 
 pub use chrono::{DateTime, Utc};
 
