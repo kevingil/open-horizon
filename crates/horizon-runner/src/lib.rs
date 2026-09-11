@@ -1,6 +1,8 @@
-//! Rollout execution: sandboxes and repository snapshots.
+//! Rollout execution: sandboxes, repository snapshots, and tool dispatch.
 
+pub mod repo_runner;
 pub mod sandbox;
 pub mod snapshot;
 
+pub use repo_runner::{RepoRunner, RepoRunnerConfig};
 pub use sandbox::{Sandbox, SandboxKind, SandboxResult};
