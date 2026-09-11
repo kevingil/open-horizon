@@ -1,5 +1,6 @@
 //! Open Horizon control plane.
 
+pub mod coordinator;
 pub mod event_bus;
 pub mod logging;
 pub mod settings;
