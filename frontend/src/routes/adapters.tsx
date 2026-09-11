@@ -51,7 +51,7 @@ export function AdapterListPage() {
           <p className="muted">
             No adapters yet. Train one from a set of rollouts via{" "}
             <code>POST /api/training-runs</code>, the Training page, or{" "}
-            <code>rl-train</code>.
+            <code>horizon train</code>.
           </p>
         ) : (
           <ul className="adapter-tree">
@@ -90,7 +90,7 @@ function AdapterNode({
               {t}
             </span>
           ))}
-          {a.eval_score !== null ? (
+          {typeof a.eval_score === "number" ? (
             <span className="badge badge-completed">eval {a.eval_score.toFixed(3)}</span>
           ) : (
             <span className="badge badge-pending">no eval</span>

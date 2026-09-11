@@ -37,7 +37,7 @@ export function TrainingListPage() {
         {runs.length === 0 ? (
           <p className="muted">
             No training runs yet. Trigger one via{" "}
-            <code>POST /api/training-runs</code> or <code>rl-train</code>.
+            <code>POST /api/training-runs</code> or <code>horizon train</code>.
           </p>
         ) : (
           <div className="stack">
@@ -53,7 +53,7 @@ export function TrainingListPage() {
                   <span className={`badge badge-${r.status}`}>{r.status}</span>
                 </div>
                 <p className="muted">
-                  parent: {r.adapter_in ?? "-"} · child: {r.adapter_out ?? "-"} ·{" "}
+                  {r.trainer} · parent: {r.adapter_in ?? "-"} · child: {r.adapter_out ?? "-"} ·{" "}
                   {r.metrics.length} steps · {r.sample_run_ids.length} samples
                 </p>
                 {r.error ? <p className="errors">error: {r.error}</p> : null}

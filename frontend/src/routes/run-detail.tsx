@@ -1,13 +1,9 @@
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { cancelRun, fetchRubrics, fetchRun, rescoreRun, type RubricInfo } from "../lib/api";
-import type { RunDetail, TrajectoryStep } from "../lib/types";
-
-interface RewardProvenance {
-  rubric?: string;
-  source?: string;
-  signals?: { name: string; value: number; weight: number; reason: string }[];
-}
+import { cancelRun, fetchRubrics, fetchRun, rescoreRun } from "../lib/api";
+import { runIdOf } from "../lib/events";
+import { useEventStream } from "../lib/socket";
+import type { RubricInfo, RunDetail, TrajectoryStep } from "../lib/types";
 
 export function RunDetailPage() {
   const { runId } = useParams({ from: "/runs/$runId" });
@@ -21,12 +17,55 @@ export function RunDetailPage() {
 
   const refresh = async () => {
     try {
-      const next = await fetchRun(runId);
-      setRun(next);
+      setRun(await fetchRun(runId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
+
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      try {
+        const [next, rubricList] = await Promise.all([fetchRun(runId), fetchRubrics()]);
+        if (!active) return;
+        setRun(next);
+        setRubrics(rubricList);
+        setSelectedRubric((cur) => cur || rubricList[0]?.name || "");
+      } catch (err) {
+        if (active) setError(err instanceof Error ? err.message : "Unknown error");
+      }
+    }
+    void load();
+    return () => {
+      active = false;
+    };
+  }, [runId]);
+
+  // Live: append steps as they land, refetch on terminal events.
+  useEventStream((event) => {
+    if (runIdOf(event) !== runId) return;
+    if (event.kind === "step.recorded") {
+      const step = event.payload.step;
+      setRun((prev) => {
+        if (!prev) return prev;
+        if (prev.trajectory.steps.some((s) => s.index === step.index)) return prev;
+        const steps = [...prev.trajectory.steps, step].sort((a, b) => a.index - b.index);
+        return { ...prev, trajectory: { ...prev.trajectory, steps }, manifest: { ...prev.manifest, step_count: steps.length } };
+      });
+    }
+    if (event.kind === "rollout.started" || event.kind === "rollout.queued") {
+      setRun((prev) => (prev ? { ...prev, manifest: event.payload.manifest } : prev));
+    }
+    if (
+      event.kind === "rollout.completed" ||
+      event.kind === "rollout.failed" ||
+      event.kind === "rollout.cancelled" ||
+      event.kind === "reward.computed"
+    ) {
+      void refresh();
+    }
+  });
 
   const onCancel = async () => {
     setCancelling(true);
@@ -44,7 +83,7 @@ export function RunDetailPage() {
     setRescoring(true);
     try {
       const result = await rescoreRun(runId, selectedRubric);
-      setRescoreDelta(result.delta);
+      setRescoreDelta(result.delta ?? null);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -53,97 +92,72 @@ export function RunDetailPage() {
     }
   };
 
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      try {
-        const [next, rubricList] = await Promise.all([fetchRun(runId), fetchRubrics()]);
-        if (!active) return;
-        setRun(next);
-        setRubrics(rubricList);
-        if (rubricList.length && !selectedRubric) {
-          setSelectedRubric(rubricList[0].name);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      }
-    }
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [runId]);
+  if (error) return <section className="panel">Run error: {error}</section>;
+  if (!run) return <section className="panel">Loading run detail...</section>;
 
-  const provenance = useMemo<RewardProvenance | null>(() => {
-    if (!run) return null;
-    try {
-      return JSON.parse(run.reward.provenance) as RewardProvenance;
-    } catch {
-      return null;
-    }
-  }, [run]);
-
-  if (error) {
-    return <section className="panel">Run error: {error}</section>;
-  }
-  if (!run) {
-    return <section className="panel">Loading run detail...</section>;
-  }
+  const m = run.manifest;
+  const reward = run.reward ?? null;
+  const active = m.status === "running" || m.status === "queued";
 
   return (
     <div className="grid">
       <section className="panel">
         <div className="panel-header">
-          <h2>{run.manifest.id}</h2>
-          <span className={`badge badge-${run.manifest.status}`}>{run.manifest.status}</span>
+          <h2>{m.id}</h2>
+          <span className={`badge badge-${m.status}`}>{m.status}</span>
         </div>
         <p>{run.task.prompt}</p>
-        {run.manifest.status === "running" || run.manifest.status === "pending" ? (
+        {active ? (
           <button className="action-btn" onClick={onCancel} disabled={cancelling}>
             {cancelling ? "Cancelling..." : "Cancel rollout"}
           </button>
         ) : null}
         <dl className="kv">
           <dt>Model</dt>
-          <dd>{run.manifest.model_id}</dd>
+          <dd>{m.model_id}</dd>
+          <dt>Profile</dt>
+          <dd>{m.profile}</dd>
           <dt>Infra</dt>
-          <dd>{run.manifest.infra_target}</dd>
+          <dd>{m.infra_target}</dd>
+          <dt>Horizon</dt>
+          <dd>{m.horizon}</dd>
+          <dt>Tokens</dt>
+          <dd>{m.tokens.toLocaleString()}</dd>
           <dt>Cost</dt>
-          <dd>${run.manifest.estimated_cost_usd.toFixed(4)}</dd>
-          {run.manifest.adapter_id ? (
+          <dd>${m.cost_usd.toFixed(4)}</dd>
+          {m.adapter_id ? (
             <>
               <dt>Adapter</dt>
-              <dd>{run.manifest.adapter_id}</dd>
+              <dd>{m.adapter_id}</dd>
+            </>
+          ) : null}
+          {run.task.success_criteria.length ? (
+            <>
+              <dt>Criteria</dt>
+              <dd>{run.task.success_criteria.join(", ")}</dd>
             </>
           ) : null}
         </dl>
+        {m.error ? <p className="errors">error: {m.error}</p> : null}
       </section>
 
       <section className="panel">
         <div className="panel-header">
           <h2>Reward</h2>
-          <span>{run.reward.terminal_reward.toFixed(3)}</span>
+          <span>{reward ? reward.terminal_reward.toFixed(3) : "unscored"}</span>
         </div>
-        {provenance?.rubric ? (
+        {reward ? (
           <p>
-            Rubric: {provenance.rubric}
-            {provenance.source === "verifiers-rubric" ? (
-              <span className="badge"> verifiers</span>
-            ) : null}
+            Rubric: {reward.rubric}
+            <span className="badge"> {reward.source}</span>
           </p>
         ) : null}
-        <p>Audit flags: {run.reward.audit_flags.join(", ") || "none"}</p>
-        {rubrics.length > 0 ? (
+        {reward ? <p>Audit flags: {reward.audit_flags.join(", ") || "none"}</p> : null}
+        {rubrics.length > 0 && !active ? (
           <div className="rescore">
             <label>
               Rescore with
-              <select
-                value={selectedRubric}
-                onChange={(e) => setSelectedRubric(e.target.value)}
-                disabled={rescoring}
-              >
+              <select value={selectedRubric} onChange={(e) => setSelectedRubric(e.target.value)} disabled={rescoring}>
                 {rubrics.map((r) => (
                   <option key={r.name} value={r.name}>
                     {r.name}
@@ -162,7 +176,7 @@ export function RunDetailPage() {
             ) : null}
           </div>
         ) : null}
-        {provenance?.signals ? (
+        {reward && reward.signals.length ? (
           <table className="signal-table">
             <thead>
               <tr>
@@ -173,7 +187,7 @@ export function RunDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {provenance.signals.map((s) => (
+              {reward.signals.map((s) => (
                 <tr key={s.name}>
                   <td>{s.name}</td>
                   <td>{s.value.toFixed(3)}</td>
@@ -183,9 +197,7 @@ export function RunDetailPage() {
               ))}
             </tbody>
           </table>
-        ) : (
-          <p className="muted">provenance: {run.reward.provenance}</p>
-        )}
+        ) : null}
       </section>
 
       <section className="panel panel-wide">
@@ -202,7 +214,7 @@ export function RunDetailPage() {
         ) : null}
         <div className="stack">
           {run.trajectory.steps.map((step) => (
-            <StepRow key={`${step.index}-${step.timestamp}`} step={step} />
+            <StepRow key={step.index} step={step} />
           ))}
         </div>
       </section>
@@ -212,11 +224,7 @@ export function RunDetailPage() {
 
 function StepRow({ step }: { step: TrajectoryStep }) {
   const parsed = useMemo(() => tryParse(step.content), [step.content]);
-  const toolName = typeof parsed?.tool === "string"
-    ? parsed.tool
-    : typeof parsed?.name === "string"
-      ? parsed.name
-      : null;
+  const toolName = typeof parsed?.tool === "string" ? parsed.tool : null;
   return (
     <div className="row-card step-row">
       <div className="step-main">
@@ -226,12 +234,9 @@ function StepRow({ step }: { step: TrajectoryStep }) {
           </strong>
           {toolName ? <span className="tool-chip">{toolName}</span> : null}
           <span className="artifact-kind">{step.kind}</span>
+          <span className="log-time">{new Date(step.at).toLocaleTimeString()}</span>
         </div>
-        {parsed ? (
-          <pre className="step-json">{JSON.stringify(parsed, null, 2)}</pre>
-        ) : (
-          <p className="step-text">{step.content}</p>
-        )}
+        {parsed ? <pre className="step-json">{JSON.stringify(parsed, null, 2)}</pre> : <p className="step-text">{step.content}</p>}
       </div>
     </div>
   );

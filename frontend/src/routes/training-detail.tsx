@@ -2,6 +2,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { LineChart, type ChartSeries } from "../components/LineChart";
 import { fetchTrainingRun } from "../lib/api";
+import { subjectId } from "../lib/events";
 import { useEventStream } from "../lib/socket";
 import type { TrainingMetricPoint, TrainingRunRecord } from "../lib/types";
 
@@ -33,16 +34,16 @@ export function TrainingRunDetailPage() {
 
   // Subscribe to live training events for this run.
   const status = useEventStream((event) => {
-    if (event.kind === "training.metric" && event.training_run_id === trainingRunId) {
-      setLiveMetrics((prev) => [...prev, event.metric]);
+    if (subjectId(event, "training_run") !== trainingRunId) return;
+    if (event.kind === "training.metric") {
+      setLiveMetrics((prev) => [...prev, event.payload.metric]);
     }
-    if (
-      (event.kind === "training.completed" ||
-        event.kind === "training.failed") &&
-      event.training_run_id === trainingRunId
-    ) {
+    if (event.kind === "training.started") {
+      setRecord(event.payload.record);
+    }
+    if (event.kind === "training.completed" || event.kind === "training.failed") {
       setTerminalKind(event.kind);
-      if (event.kind === "training.completed") setRecord(event.record);
+      setRecord(event.payload.record);
     }
   });
 
@@ -66,14 +67,14 @@ export function TrainingRunDetailPage() {
     name: "mean_reward",
     color: "#0e6a38",
     points: metrics
-      .filter((m): m is TrainingMetricPoint & { mean_reward: number } => m.mean_reward !== null)
+      .filter((m): m is TrainingMetricPoint & { mean_reward: number } => typeof m.mean_reward === "number")
       .map((m) => ({ x: m.step, y: m.mean_reward })),
   };
   const klSeries: ChartSeries = {
     name: "kl",
     color: "#244aa5",
     points: metrics
-      .filter((m): m is TrainingMetricPoint & { kl: number } => m.kl !== null)
+      .filter((m): m is TrainingMetricPoint & { kl: number } => typeof m.kl === "number")
       .map((m) => ({ x: m.step, y: m.kl })),
   };
 
@@ -106,6 +107,8 @@ export function TrainingRunDetailPage() {
               "-"
             )}
           </dd>
+          <dt>Trainer</dt>
+          <dd>{record.trainer}</dd>
           <dt>Samples</dt>
           <dd>{record.sample_run_ids.length}</dd>
           <dt>Steps</dt>
