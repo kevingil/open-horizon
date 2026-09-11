@@ -1,5 +1,8 @@
 //! Canonical domain types for the Open Horizon platform.
 
+pub mod events;
+pub mod models;
+
 pub use chrono::{DateTime, Utc};
 
 /// Current UTC timestamp. Single call site so tests can reason about clock use.
