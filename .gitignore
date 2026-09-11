@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+python/.venv/
 dist/
 build/
 node_modules/
@@ -9,5 +10,5 @@ node_modules/
 .ruff_cache/
 *.egg-info/
 artifacts/
-.env
 target/
+.env

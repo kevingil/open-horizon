@@ -1,0 +1,2470 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Open Horizon API",
+    "description": "Observability + orchestration API for long-horizon distributed RL.",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.3.0"
+  },
+  "paths": {
+    "/api/adapters": {
+      "get": {
+        "tags": [],
+        "operationId": "list_adapters",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdapterRecord"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/adapters/{adapter_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_adapter",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdapterDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/adapters/{adapter_id}/eval": {
+      "post": {
+        "tags": [],
+        "operationId": "run_eval",
+        "parameters": [
+          {
+            "name": "adapter_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RunEvalBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalReport"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/budget": {
+      "get": {
+        "tags": [],
+        "operationId": "budget_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BudgetStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "tags": [],
+        "operationId": "runtime_config",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/dashboard": {
+      "get": {
+        "tags": [],
+        "operationId": "dashboard",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "tags": [],
+        "operationId": "list_events",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventEnvelope"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/jobs": {
+      "get": {
+        "tags": [],
+        "operationId": "list_jobs",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/JobRecord"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/profiles": {
+      "get": {
+        "tags": [],
+        "operationId": "list_profiles",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfilesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rubrics": {
+      "get": {
+        "tags": [],
+        "operationId": "list_rubrics",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RubricInfo"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs": {
+      "get": {
+        "tags": [],
+        "operationId": "list_runs",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunManifest"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "create_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RolloutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateRunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_run",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/cancel": {
+      "post": {
+        "tags": [],
+        "operationId": "cancel_run",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/rescore": {
+      "post": {
+        "tags": [],
+        "operationId": "rescore",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rubric",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dry_run",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RescoreResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/turns": {
+      "get": {
+        "tags": [],
+        "operationId": "list_run_turns",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TurnIndexEntry"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/turns/{step_index}/training": {
+      "get": {
+        "tags": [],
+        "operationId": "get_run_turn_training",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnTrainingRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training-runs": {
+      "get": {
+        "tags": [],
+        "operationId": "list_training_runs",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TrainingRunRecord"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [],
+        "operationId": "create_training_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTrainingRunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateTrainingRunResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/training-runs/{id}": {
+      "get": {
+        "tags": [],
+        "operationId": "get_training_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainingRunRecord"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AdapterDetail": {
+        "type": "object",
+        "required": [
+          "adapter",
+          "children",
+          "eval_reports"
+        ],
+        "properties": {
+          "adapter": {
+            "$ref": "#/components/schemas/AdapterRecord"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdapterRecord"
+            }
+          },
+          "eval_reports": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvalReport"
+            }
+          }
+        }
+      },
+      "AdapterRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "base_model",
+          "path"
+        ],
+        "properties": {
+          "base_model": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "eval_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "training_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactRecord": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "path"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "BTreeMap": {
+        "type": "object",
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer",
+              "format": "int64"
+            },
+            {
+              "type": "number",
+              "format": "double"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "description": "Hyperparameter values: JSON scalars only."
+        },
+        "propertyNames": {
+          "type": "string"
+        }
+      },
+      "BudgetStatus": {
+        "type": "object",
+        "required": [
+          "window_hours",
+          "cap_usd",
+          "spent_usd",
+          "exceeded"
+        ],
+        "properties": {
+          "cap_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "exceeded": {
+            "type": "boolean"
+          },
+          "remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "spent_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "window_hours": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "CancelResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "run_id"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateRunResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "run_id",
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateTrainingRunBody": {
+        "type": "object",
+        "properties": {
+          "hyperparams": {
+            "$ref": "#/components/schemas/BTreeMap"
+          },
+          "parent_adapter_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_run_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CreateTrainingRunResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "training_run_id"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "training_run_id": {
+            "type": "string"
+          }
+        }
+      },
+      "DashboardSnapshot": {
+        "type": "object",
+        "required": [
+          "runs",
+          "workers",
+          "recent_artifacts"
+        ],
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recent_artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRecord"
+            }
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunManifest"
+            }
+          },
+          "workers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkerRecord"
+            }
+          }
+        }
+      },
+      "DomainEvent": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "manifest"
+                ],
+                "properties": {
+                  "manifest": {
+                    "$ref": "#/components/schemas/RunManifest"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rollout.started"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "step"
+                ],
+                "properties": {
+                  "step": {
+                    "$ref": "#/components/schemas/TrajectoryStep"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "step.recorded"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "terminal_reward",
+                  "provenance"
+                ],
+                "properties": {
+                  "audit_flags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "provenance": {
+                    "type": "string"
+                  },
+                  "terminal_reward": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "reward.computed"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "detail"
+                ],
+                "properties": {
+                  "detail": {
+                    "$ref": "#/components/schemas/RunDetail"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rollout.completed"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rollout.failed"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "rollout.cancelled"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "step_index"
+                ],
+                "properties": {
+                  "cost_usd": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "step_index": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "format": "int64",
+                    "minimum": 0
+                  },
+                  "tool": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "progress.ticked"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "spent_usd",
+                  "cap_usd",
+                  "window_hours"
+                ],
+                "properties": {
+                  "cap_usd": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "spent_usd": {
+                    "type": "number",
+                    "format": "double"
+                  },
+                  "window_hours": {
+                    "type": "number",
+                    "format": "double"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "budget.exceeded"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "worker"
+                ],
+                "properties": {
+                  "worker": {
+                    "$ref": "#/components/schemas/WorkerRecord"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "worker.updated"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "level",
+                  "logger",
+                  "message"
+                ],
+                "properties": {
+                  "context": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "type": "string"
+                    }
+                  },
+                  "level": {
+                    "type": "string"
+                  },
+                  "logger": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "log.line"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "training_run_id",
+                  "record"
+                ],
+                "properties": {
+                  "record": {
+                    "$ref": "#/components/schemas/TrainingRunRecord"
+                  },
+                  "training_run_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "training.started"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "training_run_id",
+                  "metric"
+                ],
+                "properties": {
+                  "metric": {
+                    "$ref": "#/components/schemas/TrainingMetricPoint"
+                  },
+                  "training_run_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "training.metric"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "training_run_id",
+                  "record"
+                ],
+                "properties": {
+                  "record": {
+                    "$ref": "#/components/schemas/TrainingRunRecord"
+                  },
+                  "training_run_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "training.completed"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "training_run_id",
+                  "error"
+                ],
+                "properties": {
+                  "error": {
+                    "type": "string"
+                  },
+                  "training_run_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "training.failed"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "adapter"
+                ],
+                "properties": {
+                  "adapter": {
+                    "$ref": "#/components/schemas/AdapterRecord"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "adapter.published"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventMeta"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "report"
+                ],
+                "properties": {
+                  "report": {
+                    "$ref": "#/components/schemas/EvalReport"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "eval.completed"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "ErrorBody": {
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "EvalReport": {
+        "type": "object",
+        "required": [
+          "id",
+          "adapter_id",
+          "task_set",
+          "mean_reward"
+        ],
+        "properties": {
+          "adapter_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "mean_reward": {
+            "type": "number",
+            "format": "double"
+          },
+          "per_task": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvalTaskScore"
+            }
+          },
+          "task_set": {
+            "type": "string"
+          }
+        }
+      },
+      "EvalTask": {
+        "type": "object",
+        "required": [
+          "id",
+          "prompt"
+        ],
+        "properties": {
+          "horizon": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "success_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EvalTaskScore": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "terminal_reward"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string"
+          },
+          "terminal_reward": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "EventEnvelope": {
+        "type": "object",
+        "description": "One row of the durable event log. `seq` is monotonic per store so\nclients can resume a WebSocket with `?since=<seq>`.",
+        "required": [
+          "seq",
+          "event"
+        ],
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/DomainEvent"
+          },
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "EventMeta": {
+        "type": "object",
+        "description": "Fields every event carries. Flattened into each variant so the wire\nshape is `{kind, event_id, at, run_id, ...payload}`, matching what the\ndashboard already consumes.",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "event_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "JobKind": {
+        "type": "string",
+        "enum": [
+          "rollout",
+          "training"
+        ]
+      },
+      "JobRecord": {
+        "type": "object",
+        "description": "A leased unit of work. Rollouts and training runs are both jobs so a\ncrash mid-run leaves a row another worker can pick up after the lease\nexpires, instead of an orphaned in-memory task.",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "payload"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cancel_requested": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/JobKind"
+          },
+          "lease_owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lease_until": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "payload": {},
+          "status": {
+            "$ref": "#/components/schemas/JobStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "JobStatus": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "ProfileInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "model",
+          "base_url",
+          "routes_to"
+        ],
+        "properties": {
+          "api_key_env": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "env_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "routes_to": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfilesResponse": {
+        "type": "object",
+        "required": [
+          "default",
+          "profiles"
+        ],
+        "properties": {
+          "default": {
+            "type": "string"
+          },
+          "profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileInfo"
+            }
+          }
+        }
+      },
+      "RescoreResponse": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "rubric",
+          "previous_terminal_reward",
+          "new_terminal_reward",
+          "delta",
+          "persisted",
+          "new_reward"
+        ],
+        "properties": {
+          "delta": {
+            "type": "number",
+            "format": "double"
+          },
+          "new_reward": {
+            "$ref": "#/components/schemas/RewardRecord"
+          },
+          "new_terminal_reward": {
+            "type": "number",
+            "format": "double"
+          },
+          "persisted": {
+            "type": "boolean"
+          },
+          "previous_terminal_reward": {
+            "type": "number",
+            "format": "double"
+          },
+          "rubric": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RewardPenalty": {
+        "type": "object",
+        "required": [
+          "code",
+          "value",
+          "reason"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "RewardRecord": {
+        "type": "object",
+        "required": [
+          "trajectory_id",
+          "terminal_reward",
+          "step_rewards",
+          "provenance"
+        ],
+        "properties": {
+          "audit_flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "penalties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RewardPenalty"
+            }
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "step_rewards": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "terminal_reward": {
+            "type": "number",
+            "format": "double"
+          },
+          "trajectory_id": {
+            "type": "string"
+          }
+        }
+      },
+      "RolloutRequest": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "adapter_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "horizon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "When absent, the configured round scheduler decides the horizon.",
+            "minimum": 0
+          },
+          "infra_target": {
+            "type": "string"
+          },
+          "policy_profile": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Named policy profile. Absent = the configured default profile."
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "repo_snapshot": {
+            "type": "string"
+          },
+          "success_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RubricInfo": {
+        "type": "object",
+        "required": [
+          "name",
+          "signals"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RunDetail": {
+        "type": "object",
+        "required": [
+          "manifest",
+          "task",
+          "trajectory",
+          "reward",
+          "artifacts"
+        ],
+        "properties": {
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRecord"
+            }
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/RunManifest"
+          },
+          "reward": {
+            "$ref": "#/components/schemas/RewardRecord"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskSpec"
+          },
+          "trajectory": {
+            "$ref": "#/components/schemas/TrajectoryRecord"
+          }
+        }
+      },
+      "RunEvalBody": {
+        "type": "object",
+        "properties": {
+          "task_set": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tasks": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EvalTask"
+            }
+          }
+        }
+      },
+      "RunManifest": {
+        "type": "object",
+        "required": [
+          "id",
+          "model_id",
+          "dataset_slice",
+          "infra_target",
+          "seed",
+          "status"
+        ],
+        "properties": {
+          "adapter_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dataset_slice": {
+            "type": "string"
+          },
+          "estimated_cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "infra_target": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "seed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RunStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed"
+        ]
+      },
+      "RuntimeConfig": {
+        "type": "object",
+        "required": [
+          "env_backend",
+          "policy_name",
+          "trainer_backend",
+          "default_profile",
+          "profile_names",
+          "store_backend",
+          "worker_id"
+        ],
+        "properties": {
+          "default_profile": {
+            "type": "string"
+          },
+          "env_backend": {
+            "type": "string"
+          },
+          "policy_name": {
+            "type": "string"
+          },
+          "profile_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "store_backend": {
+            "type": "string"
+          },
+          "trainer_backend": {
+            "type": "string"
+          },
+          "verifiers_env_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "worker_id": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskSpec": {
+        "type": "object",
+        "required": [
+          "id",
+          "prompt",
+          "repo_snapshot",
+          "tool_permissions",
+          "success_criteria"
+        ],
+        "properties": {
+          "horizon": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "repo_snapshot": {
+            "type": "string"
+          },
+          "success_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tool_permissions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolPermission"
+            }
+          }
+        }
+      },
+      "ToolPermission": {
+        "type": "string",
+        "enum": [
+          "read",
+          "edit",
+          "terminal",
+          "search"
+        ]
+      },
+      "TrainingMetricPoint": {
+        "type": "object",
+        "required": [
+          "step",
+          "loss"
+        ],
+        "properties": {
+          "extra": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "kl": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "loss": {
+            "type": "number",
+            "format": "double"
+          },
+          "mean_reward": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "step": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TrainingRunRecord": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "adapter_in": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "adapter_out": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hyperparams": {
+            "$ref": "#/components/schemas/BTreeMap"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrainingMetricPoint"
+            }
+          },
+          "sample_run_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/TrainingStatus"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrainingStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "TrajectoryRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "steps"
+        ],
+        "properties": {
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TrajectoryStep"
+            }
+          },
+          "summaries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "timings_ms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TrajectoryStep": {
+        "type": "object",
+        "required": [
+          "index",
+          "actor",
+          "kind",
+          "content"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "has_training_metadata": {
+            "type": "boolean",
+            "description": "Flips true when a `TurnTrainingRecord` row exists for this step."
+          },
+          "index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TurnIndexEntry": {
+        "type": "object",
+        "required": [
+          "step_index",
+          "model_name",
+          "token_count",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "step_index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "token_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "TurnTrainingRecord": {
+        "type": "object",
+        "description": "Per-turn token-level metadata, stored in its own table so run payloads\nnever carry the bytes.",
+        "required": [
+          "id",
+          "run_id",
+          "step_index"
+        ],
+        "properties": {
+          "attention_mask": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "completion_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "loss_mask": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "prompt_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "sampling_args": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "step_index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "token_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkerRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "role",
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/WorkerStatus"
+          }
+        }
+      },
+      "WorkerStatus": {
+        "type": "string",
+        "enum": [
+          "idle",
+          "running",
+          "failed"
+        ]
+      }
+    }
+  }
+}
