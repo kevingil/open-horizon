@@ -148,14 +148,21 @@ different rollouts to different providers and paths; see `.env.example`.
 - `/api/events?since=N` and `/api/jobs` expose the durable log and the
   job table for debugging and for other workers.
 
+## Smoke test
+
+`scripts/smoke/run.sh` builds the release binary, starts the scripted
+mock policy (`horizon mock-policy`), the server on SQLite, and the Vite
+dashboard, then drives the browser through queue, live progress, run
+detail, rescoring, training from a selection, eval, and a mid-flight
+cancel. Screenshots and a `report.json` land under `artifacts/smoke/`.
+
 ## Compatibility notes
 
-- The `runs`, `workers`, `turn_training`, `training_runs`, and
-  `eval_reports` tables match the previous Python schema, so an existing
-  `artifacts/runs.db` keeps loading. Training tables now live in the same
-  file as runs.
-- API routes, payloads, and event shapes are unchanged; events gain a
-  `seq` field.
+- The store schema is normalised (steps, reward signals, and training
+  metrics are rows, timestamps are integers) and is not compatible with
+  databases written by the previous Python service.
+- Events are envelopes: `{seq, at, subject, kind, payload}`. Frontend
+  types are generated from `/openapi.json` (`npm run gen:api`).
 - Heuristic rubrics (`heuristic-v1`, `coding-v1`, `strict-finish-v1`)
   are kept for replay. Production reward should come from verifiers
   rubrics or judge models, not from extending these.
