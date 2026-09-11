@@ -1,8 +1,5 @@
-//! HTTP + WebSocket API. Routes and payload shapes are identical to the
-//! FastAPI service they replace; `/openapi.json` is generated from the
-//! Rust types so the frontend can regenerate its bindings.
-
-use std::collections::BTreeMap;
+//! HTTP + WebSocket API. `/openapi.json` is generated from the Rust
+//! types; the frontend regenerates its bindings from it.
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
@@ -11,12 +8,12 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 
+use horizon_core::events::{DomainEvent, EventEnvelope};
 use horizon_core::models::{
-    AdapterRecord, DashboardSnapshot, EvalReport, EvalTask, EventEnvelope, Hyperparams, JobRecord,
+    AdapterRecord, DashboardSnapshot, EvalReport, EvalTask, Hyperparams, JobRecord, RewardRecord,
     RolloutRequest, RunDetail, RunManifest, TrainingRunRecord, TurnTrainingRecord,
 };
 use horizon_core::rewards;
@@ -43,6 +40,17 @@ impl IntoResponse for ApiError {
 impl From<horizon_store::StoreError> for ApiError {
     fn from(e: horizon_store::StoreError) -> Self {
         ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())
+    }
+}
+
+impl From<CoordinatorError> for ApiError {
+    fn from(e: CoordinatorError) -> Self {
+        match e {
+            CoordinatorError::UnknownProfile(..) => {
+                ApiError(StatusCode::UNPROCESSABLE_ENTITY, e.to_string())
+            }
+            other => ApiError(StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
+        }
     }
 }
 
@@ -89,7 +97,7 @@ pub struct TurnIndexEntry {
     pub step_index: u32,
     pub model_name: String,
     pub token_count: u32,
-    pub created_at: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[utoipa::path(get, path = "/api/runs/{run_id}/turns", params(("run_id" = String, Path)), responses((status = 200, body = Vec<TurnIndexEntry>), (status = 404, body = ErrorBody)))]
@@ -97,7 +105,7 @@ async fn list_run_turns(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<Json<Vec<TurnIndexEntry>>, ApiError> {
-    if state.store.get_run(&run_id)?.is_none() {
+    if state.store.get_manifest(&run_id)?.is_none() {
         return Err(not_found("Run not found"));
     }
     let rows = state.store.list_turn_training(&run_id)?;
@@ -107,7 +115,7 @@ async fn list_run_turns(
                 step_index: r.step_index,
                 model_name: r.model_name,
                 token_count: r.token_count,
-                created_at: r.created_at.to_rfc3339(),
+                created_at: r.created_at,
             })
             .collect(),
     ))
@@ -127,9 +135,7 @@ async fn get_run_turn_training(
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateRunResponse {
-    pub status: String,
     pub run_id: String,
-    pub prompt: String,
 }
 
 #[utoipa::path(post, path = "/api/runs", request_body = RolloutRequest, responses((status = 202, body = CreateRunResponse), (status = 422, body = ErrorBody)))]
@@ -137,26 +143,9 @@ async fn create_run(
     State(state): State<AppState>,
     Json(request): Json<RolloutRequest>,
 ) -> Result<(StatusCode, Json<CreateRunResponse>), ApiError> {
-    let prompt = request.prompt.clone();
-    let run_id = match state.coordinator.submit(request) {
-        Ok(id) => id,
-        Err(CoordinatorError::UnknownProfile(name, configured)) => {
-            return Err(ApiError(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                format!("unknown policy profile: {name:?}. Configured: {configured:?}"),
-            ))
-        }
-        Err(e) => return Err(ApiError(StatusCode::INTERNAL_SERVER_ERROR, e.to_string())),
-    };
+    let run_id = state.coordinator.submit(request)?;
     state.jobs_notify.notify_one();
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(CreateRunResponse {
-            status: "accepted".into(),
-            run_id,
-            prompt,
-        }),
-    ))
+    Ok((StatusCode::ACCEPTED, Json(CreateRunResponse { run_id })))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -201,7 +190,6 @@ async fn list_profiles(State(state): State<AppState>) -> Json<ProfilesResponse> 
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CancelResponse {
-    pub status: String,
     pub run_id: String,
 }
 
@@ -210,19 +198,13 @@ async fn cancel_run(
     State(state): State<AppState>,
     Path(run_id): Path<String>,
 ) -> Result<(StatusCode, Json<CancelResponse>), ApiError> {
-    if !state.coordinator.request_cancel(&run_id).await {
+    if !state.coordinator.request_cancel(&run_id).await? {
         return Err(ApiError(
             StatusCode::CONFLICT,
-            "Run is already terminal".into(),
+            "Run is already terminal or unknown".into(),
         ));
     }
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(CancelResponse {
-            status: "cancelling".into(),
-            run_id,
-        }),
-    ))
+    Ok((StatusCode::ACCEPTED, Json(CancelResponse { run_id })))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -234,7 +216,9 @@ pub struct RuntimeConfig {
     pub default_profile: String,
     pub profile_names: Vec<String>,
     pub store_backend: String,
+    pub sandbox: String,
     pub worker_id: String,
+    pub max_parallel_rollouts: usize,
 }
 
 #[utoipa::path(get, path = "/api/config", responses((status = 200, body = RuntimeConfig)))]
@@ -251,7 +235,9 @@ async fn runtime_config(State(state): State<AppState>) -> Json<RuntimeConfig> {
         default_profile: coord.default_profile.clone(),
         profile_names: coord.profiles.keys().cloned().collect(),
         store_backend: state.settings.store_backend.clone(),
+        sandbox: state.settings.env_sandbox.clone(),
         worker_id: state.settings.worker_id.clone(),
+        max_parallel_rollouts: state.settings.max_parallel_rollouts,
     })
 }
 
@@ -316,11 +302,10 @@ pub struct RescoreQuery {
 pub struct RescoreResponse {
     pub run_id: String,
     pub rubric: String,
-    pub previous_terminal_reward: f64,
-    pub new_terminal_reward: f64,
-    pub delta: f64,
+    pub previous: Option<RewardRecord>,
+    pub reward: RewardRecord,
+    pub delta: Option<f64>,
     pub persisted: bool,
-    pub new_reward: horizon_core::models::RewardRecord,
 }
 
 #[utoipa::path(post, path = "/api/runs/{run_id}/rescore", params(("run_id" = String, Path), RescoreQuery), responses((status = 200, body = RescoreResponse), (status = 400, body = ErrorBody), (status = 404, body = ErrorBody)))]
@@ -336,21 +321,20 @@ async fn rescore(
             RescoreError::Store(s) => ApiError(StatusCode::INTERNAL_SERVER_ERROR, s.to_string()),
         })?;
     if !q.dry_run {
-        state
-            .bus
-            .publish(horizon_core::events::DomainEvent::reward_computed(
-                &run_id,
-                &result.new,
-            ));
+        state.bus.run(
+            &run_id,
+            DomainEvent::RewardComputed {
+                reward: result.new.clone(),
+            },
+        );
     }
     Ok(Json(RescoreResponse {
         run_id: result.run_id.clone(),
         rubric: result.rubric.clone(),
-        previous_terminal_reward: result.previous.terminal_reward,
-        new_terminal_reward: result.new.terminal_reward,
         delta: result.delta(),
+        previous: result.previous,
+        reward: result.new,
         persisted: !q.dry_run,
-        new_reward: result.new,
     }))
 }
 
@@ -390,12 +374,12 @@ pub struct RunEvalBody {
     pub task_set: Option<String>,
 }
 
-#[utoipa::path(post, path = "/api/adapters/{adapter_id}/eval", params(("adapter_id" = String, Path)), request_body(content = Option<RunEvalBody>), responses((status = 202, body = EvalReport), (status = 404, body = ErrorBody)))]
+#[utoipa::path(post, path = "/api/adapters/{adapter_id}/eval", params(("adapter_id" = String, Path)), request_body(content = Option<RunEvalBody>), responses((status = 200, body = EvalReport), (status = 404, body = ErrorBody)))]
 async fn run_eval(
     State(state): State<AppState>,
     Path(adapter_id): Path<String>,
     body: Option<Json<RunEvalBody>>,
-) -> Result<(StatusCode, Json<EvalReport>), ApiError> {
+) -> Result<Json<EvalReport>, ApiError> {
     let body = body.map(|b| b.0).unwrap_or_default();
     let report = state
         .eval
@@ -407,7 +391,7 @@ async fn run_eval(
             }
             other => ApiError(StatusCode::INTERNAL_SERVER_ERROR, other.to_string()),
         })?;
-    Ok((StatusCode::ACCEPTED, Json(report)))
+    Ok(Json(report))
 }
 
 #[utoipa::path(get, path = "/api/training-runs", responses((status = 200, body = Vec<TrainingRunRecord>)))]
@@ -441,7 +425,6 @@ pub struct CreateTrainingRunBody {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateTrainingRunResponse {
-    pub status: String,
     pub training_run_id: String,
 }
 
@@ -459,7 +442,6 @@ async fn create_training_run(
     Ok((
         StatusCode::ACCEPTED,
         Json(CreateTrainingRunResponse {
-            status: "accepted".into(),
             training_run_id: record.id,
         }),
     ))
@@ -513,14 +495,6 @@ async fn events_ws(
     ws.on_upgrade(move |socket| handle_ws(socket, state, q.since))
 }
 
-fn envelope_json(env: &EventEnvelope) -> String {
-    let mut v = serde_json::to_value(&env.event).unwrap_or(Value::Null);
-    if let Value::Object(map) = &mut v {
-        map.insert("seq".into(), json!(env.seq));
-    }
-    v.to_string()
-}
-
 async fn handle_ws(mut socket: WebSocket, state: AppState, since: Option<i64>) {
     // Subscribe before replaying so nothing published in between is lost.
     let mut rx = state.bus.subscribe();
@@ -531,11 +505,8 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, since: Option<i64>) {
     let mut last_seq = 0;
     for env in &backlog {
         last_seq = env.seq;
-        if socket
-            .send(Message::Text(envelope_json(env).into()))
-            .await
-            .is_err()
-        {
+        let text = serde_json::to_string(env).unwrap_or_default();
+        if socket.send(Message::Text(text.into())).await.is_err() {
             return;
         }
     }
@@ -554,7 +525,8 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, since: Option<i64>) {
                             continue;
                         }
                         last_seq = env.seq;
-                        if socket.send(Message::Text(envelope_json(&env).into())).await.is_err() {
+                        let text = serde_json::to_string(&env).unwrap_or_default();
+                        if socket.send(Message::Text(text.into())).await.is_err() {
                             return;
                         }
                     }
@@ -599,8 +571,9 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, since: Option<i64>) {
         list_events,
     ),
     components(schemas(
-        horizon_core::events::DomainEvent,
-        horizon_core::events::EventMeta,
+        DomainEvent,
+        horizon_core::events::Event,
+        horizon_core::events::Subject,
         EventEnvelope
     ))
 )]
@@ -652,7 +625,3 @@ pub fn router(state: AppState) -> Router {
         .layer(cors)
         .with_state(state)
 }
-
-/// Unused-import guard for schema-only types referenced in OpenAPI.
-#[allow(dead_code)]
-fn _schema_refs(_: BTreeMap<String, String>) {}
