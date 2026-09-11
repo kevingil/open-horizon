@@ -1,5 +1,7 @@
-//! Open Horizon control plane.
+//! Open Horizon control plane: durable jobs, event log, HTTP + WebSocket
+//! API, and the coordinator that drives rollouts and training.
 
+pub mod api;
 pub mod app;
 pub mod coordinator;
 pub mod eval;
