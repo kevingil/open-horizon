@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { fetchDashboard } from "./api";
-import type { DomainEvent, LogLine } from "./events";
+import { runIdOf, type EventEnvelope, type EventOf } from "./events";
 import { useEventStream, type SocketStatus } from "./socket";
 import type { DashboardSnapshot, RunManifest, WorkerRecord } from "./types";
 
 export interface RunProgress {
-  step_index: number;
+  turn: number;
   tool: string | null;
   tokens: number;
   cost_usd: number;
@@ -14,7 +14,7 @@ export interface RunProgress {
 
 export interface LiveState {
   snapshot: DashboardSnapshot | null;
-  logs: LogLine[];
+  logs: EventOf<"log.line">[];
   progress: Record<string, RunProgress>;
   status: SocketStatus;
   error: string | null;
@@ -24,7 +24,7 @@ const MAX_LOGS = 200;
 
 export function useLiveDashboard(): LiveState {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot | null>(null);
-  const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logs, setLogs] = useState<EventOf<"log.line">[]>([]);
   const [progress, setProgress] = useState<Record<string, RunProgress>>({});
   const [error, setError] = useState<string | null>(null);
 
@@ -46,26 +46,20 @@ export function useLiveDashboard(): LiveState {
         return next.length > MAX_LOGS ? next.slice(next.length - MAX_LOGS) : next;
       });
     }
-    if (event.kind === "progress.ticked" && event.run_id) {
-      const runId = event.run_id;
+    const runId = runIdOf(event);
+    if (!runId) return;
+    if (event.kind === "progress.ticked") {
+      const p = event.payload;
       setProgress((prev) => ({
         ...prev,
-        [runId]: {
-          step_index: event.step_index,
-          tool: event.tool,
-          tokens: event.tokens,
-          cost_usd: event.cost_usd,
-          at: event.at,
-        },
+        [runId]: { turn: p.turn, tool: p.tool ?? null, tokens: p.tokens, cost_usd: p.cost_usd, at: event.at },
       }));
     }
     if (
-      (event.kind === "rollout.completed" ||
-        event.kind === "rollout.failed" ||
-        event.kind === "rollout.cancelled") &&
-      event.run_id
+      event.kind === "rollout.completed" ||
+      event.kind === "rollout.failed" ||
+      event.kind === "rollout.cancelled"
     ) {
-      const runId = event.run_id;
       setProgress((prev) => {
         if (!(runId in prev)) return prev;
         const next = { ...prev };
@@ -78,27 +72,47 @@ export function useLiveDashboard(): LiveState {
   return { snapshot, logs, progress, status, error };
 }
 
-function applyEvent(snapshot: DashboardSnapshot, event: DomainEvent): DashboardSnapshot {
+function applyEvent(snapshot: DashboardSnapshot, event: EventEnvelope): DashboardSnapshot {
   switch (event.kind) {
+    case "rollout.queued":
     case "rollout.started":
-      return { ...snapshot, runs: upsertRun(snapshot.runs, event.manifest) };
-    case "rollout.completed": {
-      const runs = upsertRun(snapshot.runs, event.detail.manifest);
-      const recent_artifacts = [...event.detail.artifacts, ...snapshot.recent_artifacts].slice(0, 10);
-      return { ...snapshot, runs, recent_artifacts };
-    }
+    case "rollout.completed":
+    case "rollout.cancelled":
+      return { ...snapshot, runs: upsertRun(snapshot.runs, event.payload.manifest), jobs: bumpJobs(snapshot, event.kind) };
     case "rollout.failed":
-    case "rollout.cancelled": {
-      const runs = snapshot.runs.map((r) =>
-        r.id === event.run_id ? { ...r, status: "failed" as const, updated_at: event.at } : r,
-      );
-      return { ...snapshot, runs };
-    }
+      return { ...snapshot, runs: upsertRun(snapshot.runs, event.payload.manifest), jobs: bumpJobs(snapshot, event.kind) };
     case "worker.updated":
-      return { ...snapshot, workers: upsertWorker(snapshot.workers, event.worker) };
+      return { ...snapshot, workers: upsertWorker(snapshot.workers, event.payload.worker) };
     default:
       return snapshot;
   }
+}
+
+/** Keep the job counters roughly live between snapshot refreshes. */
+function bumpJobs(snapshot: DashboardSnapshot, kind: string) {
+  const jobs = { ...snapshot.jobs };
+  switch (kind) {
+    case "rollout.queued":
+      jobs.queued += 1;
+      break;
+    case "rollout.started":
+      jobs.queued = Math.max(0, jobs.queued - 1);
+      jobs.running += 1;
+      break;
+    case "rollout.completed":
+      jobs.running = Math.max(0, jobs.running - 1);
+      jobs.completed += 1;
+      break;
+    case "rollout.failed":
+      jobs.running = Math.max(0, jobs.running - 1);
+      jobs.failed += 1;
+      break;
+    case "rollout.cancelled":
+      jobs.running = Math.max(0, jobs.running - 1);
+      jobs.cancelled += 1;
+      break;
+  }
+  return jobs;
 }
 
 function upsertRun(runs: RunManifest[], manifest: RunManifest): RunManifest[] {
