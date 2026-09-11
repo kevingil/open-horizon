@@ -151,6 +151,9 @@ export type EvalCompleted = {
   report: EvalReport;
 };
 
+/** Durable log sequence number; present on every event the server emits. */
+export type Sequenced = { seq?: number };
+
 export type DomainEvent =
   | RolloutStarted
   | StepRecorded
