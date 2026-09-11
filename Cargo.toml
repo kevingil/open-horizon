@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/horizon-core", "crates/horizon-store", "crates/horizon-runner", "crates/horizon-bridge"]
+members = [
+  "crates/horizon-core",
+  "crates/horizon-store",
+  "crates/horizon-runner",
+  "crates/horizon-bridge",
+  "crates/horizon-server",
+]
 
 [workspace.package]
 version = "0.3.0"

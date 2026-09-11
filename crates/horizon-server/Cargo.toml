@@ -1,0 +1,37 @@
+[package]
+name = "horizon-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "horizon"
+path = "src/main.rs"
+
+[dependencies]
+horizon-core.workspace = true
+horizon-store.workspace = true
+horizon-runner.workspace = true
+horizon-bridge.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+utoipa.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+clap.workspace = true
+dotenvy.workspace = true
+reqwest.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+tokio-tungstenite = "0.26"
+futures-util = "0.3"
