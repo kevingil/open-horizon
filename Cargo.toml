@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/horizon-core"]
+members = ["crates/horizon-core", "crates/horizon-store"]
 
 [workspace.package]
 version = "0.3.0"
@@ -10,6 +10,7 @@ rust-version = "1.80"
 
 [workspace.dependencies]
 horizon-core = { path = "crates/horizon-core" }
+horizon-store = { path = "crates/horizon-store" }
 
 anyhow = "1"
 thiserror = "2"
