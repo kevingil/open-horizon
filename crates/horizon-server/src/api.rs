@@ -13,8 +13,9 @@ use utoipa::{OpenApi, ToSchema};
 
 use horizon_core::events::{DomainEvent, EventEnvelope};
 use horizon_core::models::{
-    AdapterRecord, DashboardSnapshot, EvalReport, EvalTask, Hyperparams, JobRecord, RewardRecord,
-    RolloutRequest, RunDetail, RunManifest, TrainingRunRecord, TurnTrainingRecord,
+    AdapterRecord, DashboardSnapshot, EvalReport, EvalTask, Hyperparams, JobRecord, NodeRecord,
+    RewardBin, RewardRecord, RolloutRequest, RunDetail, RunManifest, RunStatus, Stats, StatsBucket,
+    TrainingRunRecord, TurnTrainingRecord,
 };
 use horizon_core::rewards;
 
@@ -70,14 +71,129 @@ async fn health() -> Json<HealthResponse> {
     })
 }
 
-#[utoipa::path(get, path = "/api/dashboard", responses((status = 200, body = DashboardSnapshot)))]
-async fn dashboard(State(state): State<AppState>) -> Result<Json<DashboardSnapshot>, ApiError> {
-    Ok(Json(state.store.dashboard()?))
+/// Trailing window for rollups, in seconds. Defaults to 15 minutes.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct WindowQuery {
+    #[serde(default = "default_window")]
+    pub window_s: i64,
 }
 
-#[utoipa::path(get, path = "/api/runs", responses((status = 200, body = Vec<RunManifest>)))]
-async fn list_runs(State(state): State<AppState>) -> Result<Json<Vec<RunManifest>>, ApiError> {
-    Ok(Json(state.store.list_runs()?))
+fn default_window() -> i64 {
+    900
+}
+
+fn window(q: &WindowQuery) -> chrono::Duration {
+    chrono::Duration::seconds(q.window_s.clamp(60, 7 * 86_400))
+}
+
+#[utoipa::path(get, path = "/api/dashboard", params(WindowQuery), responses((status = 200, body = DashboardSnapshot)))]
+async fn dashboard(
+    State(state): State<AppState>,
+    Query(q): Query<WindowQuery>,
+) -> Result<Json<DashboardSnapshot>, ApiError> {
+    Ok(Json(state.store.dashboard(window(&q))?))
+}
+
+#[utoipa::path(get, path = "/api/stats", params(WindowQuery), responses((status = 200, body = Stats)))]
+async fn stats(
+    State(state): State<AppState>,
+    Query(q): Query<WindowQuery>,
+) -> Result<Json<Stats>, ApiError> {
+    Ok(Json(state.store.stats(window(&q))?))
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct TimeseriesQuery {
+    #[serde(default = "default_window")]
+    pub window_s: i64,
+    #[serde(default = "default_bucket")]
+    pub bucket_s: i64,
+}
+
+fn default_bucket() -> i64 {
+    30
+}
+
+#[utoipa::path(get, path = "/api/stats/timeseries", params(TimeseriesQuery), responses((status = 200, body = Vec<StatsBucket>)))]
+async fn stats_timeseries(
+    State(state): State<AppState>,
+    Query(q): Query<TimeseriesQuery>,
+) -> Result<Json<Vec<StatsBucket>>, ApiError> {
+    let window = chrono::Duration::seconds(q.window_s.clamp(60, 7 * 86_400));
+    let bucket = chrono::Duration::seconds(q.bucket_s.clamp(5, 3600));
+    Ok(Json(state.store.timeseries(window, bucket)?))
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct HistogramQuery {
+    #[serde(default = "default_window")]
+    pub window_s: i64,
+    #[serde(default = "default_bins")]
+    pub bins: usize,
+}
+
+fn default_bins() -> usize {
+    20
+}
+
+#[utoipa::path(get, path = "/api/stats/rewards", params(HistogramQuery), responses((status = 200, body = Vec<RewardBin>)))]
+async fn stats_rewards(
+    State(state): State<AppState>,
+    Query(q): Query<HistogramQuery>,
+) -> Result<Json<Vec<RewardBin>>, ApiError> {
+    Ok(Json(state.store.reward_histogram(
+        chrono::Duration::seconds(q.window_s.clamp(60, 7 * 86_400)),
+        q.bins,
+    )?))
+}
+
+#[utoipa::path(get, path = "/api/fleet", responses((status = 200, body = Vec<NodeRecord>)))]
+async fn fleet(State(state): State<AppState>) -> Result<Json<Vec<NodeRecord>>, ApiError> {
+    Ok(Json(state.store.list_nodes()?))
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct RunsQuery {
+    #[serde(default)]
+    pub status: Option<RunStatus>,
+    #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default = "default_runs_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub offset: usize,
+}
+
+fn default_runs_limit() -> usize {
+    200
+}
+
+#[utoipa::path(get, path = "/api/runs", params(RunsQuery), responses((status = 200, body = Vec<RunManifest>)))]
+async fn list_runs(
+    State(state): State<AppState>,
+    Query(q): Query<RunsQuery>,
+) -> Result<Json<Vec<RunManifest>>, ApiError> {
+    Ok(Json(state.store.query_runs(
+        q.status,
+        q.profile.as_deref(),
+        q.limit.min(1000),
+        q.offset,
+    )?))
+}
+
+#[utoipa::path(get, path = "/api/runs/{run_id}/events", params(("run_id" = String, Path), EventsQuery), responses((status = 200, body = Vec<EventEnvelope>)))]
+async fn run_events(
+    State(state): State<AppState>,
+    Path(run_id): Path<String>,
+    Query(q): Query<EventsQuery>,
+) -> Result<Json<Vec<EventEnvelope>>, ApiError> {
+    Ok(Json(state.store.query_events(
+        q.since,
+        q.limit.min(1000),
+        q.kind.as_deref(),
+        Some("run"),
+        Some(&run_id),
+    )?))
 }
 
 #[utoipa::path(get, path = "/api/runs/{run_id}", params(("run_id" = String, Path)), responses((status = 200, body = RunDetail), (status = 404, body = ErrorBody)))]
@@ -471,14 +587,27 @@ pub struct EventsQuery {
     pub since: i64,
     #[serde(default = "default_limit")]
     pub limit: usize,
+    /// Kind prefix filter, e.g. `rollout.` or `training.metric`.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub subject_kind: Option<String>,
+    #[serde(default)]
+    pub subject_id: Option<String>,
 }
 
 #[utoipa::path(get, path = "/api/events", params(EventsQuery), responses((status = 200, body = Vec<EventEnvelope>)))]
 async fn list_events(
     State(state): State<AppState>,
     Query(q): Query<EventsQuery>,
-) -> Json<Vec<EventEnvelope>> {
-    Json(state.bus.since(q.since, q.limit.min(1000)))
+) -> Result<Json<Vec<EventEnvelope>>, ApiError> {
+    Ok(Json(state.store.query_events(
+        q.since,
+        q.limit.min(1000),
+        q.kind.as_deref(),
+        q.subject_kind.as_deref(),
+        q.subject_id.as_deref(),
+    )?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -550,7 +679,12 @@ async fn handle_ws(mut socket: WebSocket, state: AppState, since: Option<i64>) {
     paths(
         health,
         dashboard,
+        stats,
+        stats_timeseries,
+        stats_rewards,
+        fleet,
         list_runs,
+        run_events,
         get_run,
         list_run_turns,
         get_run_turn_training,
@@ -598,8 +732,13 @@ pub fn router(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/openapi.json", get(openapi_json))
         .route("/api/dashboard", get(dashboard))
+        .route("/api/stats", get(stats))
+        .route("/api/stats/timeseries", get(stats_timeseries))
+        .route("/api/stats/rewards", get(stats_rewards))
+        .route("/api/fleet", get(fleet))
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/runs/{run_id}", get(get_run))
+        .route("/api/runs/{run_id}/events", get(run_events))
         .route("/api/runs/{run_id}/turns", get(list_run_turns))
         .route(
             "/api/runs/{run_id}/turns/{step_index}/training",
