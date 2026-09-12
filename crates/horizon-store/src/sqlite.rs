@@ -627,8 +627,10 @@ impl Store {
             // In-flight sampled as runs that had started and not finished at bucket start.
             let mut stmt = c.prepare("SELECT started_at, finished_at FROM runs WHERE started_at IS NOT NULL AND (finished_at IS NULL OR finished_at >= ?1)")?;
             let spans: Vec<(i64, Option<i64>)> = stmt.query_map(params![since], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+            // Sample in-flight at the end of each bucket (or now for the open one).
+            let now_us = micros(&now);
             for b in out.iter_mut() {
-                let t = b.ts * 1_000_000;
+                let t = ((b.ts + bucket_s) * 1_000_000).min(now_us);
                 b.in_flight = spans.iter().filter(|(s, f)| *s <= t && f.is_none_or(|f| f > t)).count() as u32;
             }
             let mut stmt = c.prepare("SELECT at, duration_ms FROM run_steps WHERE kind = 'action' AND duration_ms IS NOT NULL AND at >= ?1")?;
@@ -982,13 +984,40 @@ impl Store {
     }
 
     pub fn events_since(&self, since_seq: i64, limit: usize) -> Result<Vec<EventEnvelope>> {
+        self.query_events(since_seq, limit, None, None, None)
+    }
+
+    /// Events after `since_seq`, optionally filtered by kind prefix and subject.
+    pub fn query_events(
+        &self,
+        since_seq: i64,
+        limit: usize,
+        kind: Option<&str>,
+        subject_kind: Option<&str>,
+        subject_id: Option<&str>,
+    ) -> Result<Vec<EventEnvelope>> {
         self.with_conn(|c| {
-            let mut stmt = c.prepare(
-                "SELECT seq, payload FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2",
+            let mut sql = String::from("SELECT seq, payload FROM events WHERE seq > ?");
+            let mut args: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(since_seq)];
+            if let Some(k) = kind {
+                sql.push_str(" AND kind LIKE ?");
+                args.push(Box::new(format!("{k}%")));
+            }
+            if let Some(sk) = subject_kind {
+                sql.push_str(" AND subject_kind = ?");
+                args.push(Box::new(sk.to_string()));
+            }
+            if let Some(sid) = subject_id {
+                sql.push_str(" AND subject_id = ?");
+                args.push(Box::new(sid.to_string()));
+            }
+            sql.push_str(" ORDER BY seq ASC LIMIT ?");
+            args.push(Box::new(limit as i64));
+            let mut stmt = c.prepare(&sql)?;
+            let rows = stmt.query_map(
+                rusqlite::params_from_iter(args.iter().map(|a| a.as_ref())),
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
             )?;
-            let rows = stmt.query_map(params![since_seq, limit as i64], |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
-            })?;
             rows.map(|r| {
                 let (seq, payload) = r?;
                 Ok(EventEnvelope {
@@ -1565,6 +1594,20 @@ mod tests {
         let s1 = store.append_event(&ev("a")).unwrap();
         let s2 = store.append_event(&ev("b")).unwrap();
         assert!(s2 > s1);
+        assert_eq!(
+            store
+                .query_events(0, 10, Some("log."), Some("run"), Some("run-1"))
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            store
+                .query_events(0, 10, Some("rollout."), None, None)
+                .unwrap()
+                .len(),
+            0
+        );
         let after = store.events_since(s1, 10).unwrap();
         assert_eq!(after.len(), 1);
         assert_eq!(after[0].seq, s2);
