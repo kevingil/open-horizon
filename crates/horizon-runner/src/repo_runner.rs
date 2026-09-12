@@ -164,6 +164,12 @@ impl RepoRunner {
         let pattern = arg_str(args, "pattern", "");
         let path = arg_str(args, "path", ".");
         let target = self.resolve(workspace, &path)?;
+        // Run relative to the workspace so matches carry workspace-relative paths.
+        let rel = target
+            .strip_prefix(workspace)
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let rel = if rel.is_empty() { ".".to_string() } else { rel };
         let argv: Vec<String> = if which("rg") {
             vec![
                 "rg".into(),
@@ -171,15 +177,17 @@ impl RepoRunner {
                 "--line-number".into(),
                 "--color".into(),
                 "never".into(),
+                "-e".into(),
                 pattern.clone(),
-                target.display().to_string(),
+                rel,
             ]
         } else {
             vec![
                 "grep".into(),
                 "-rn".into(),
+                "-e".into(),
                 pattern.clone(),
-                target.display().to_string(),
+                rel,
             ]
         };
         // Search runs on the host: it is read-only against a path-checked workspace.
@@ -350,16 +358,77 @@ fn err(reason: &str) -> String {
     json!({"error": reason}).to_string()
 }
 
+/// Serialize within `max_bytes`, shrinking the payload structurally rather
+/// than cutting the JSON text: long strings are clipped and long arrays are
+/// shortened, so the policy always receives well-formed, labelled output.
 fn truncate_json(data: &Value, max_bytes: usize) -> String {
     let text = data.to_string();
     if text.len() <= max_bytes {
         return text;
     }
-    let mut end = max_bytes.saturating_sub(64);
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
+    let mut value = data.clone();
+    let mut budget = max_bytes;
+    for _ in 0..12 {
+        shrink(&mut value, budget);
+        let text = value.to_string();
+        if text.len() <= max_bytes {
+            if let Value::Object(map) = &mut value {
+                map.insert("_truncated".into(), Value::Bool(true));
+            }
+            let text = value.to_string();
+            if text.len() <= max_bytes {
+                return text;
+            }
+        }
+        budget /= 2;
+        if budget < 64 {
+            break;
+        }
     }
-    json!({"_truncated": true, "preview": &text[..end]}).to_string()
+    json!({"_truncated": true, "preview": text.chars().take(max_bytes / 4).collect::<String>()})
+        .to_string()
+}
+
+fn shrink(value: &mut Value, budget: usize) {
+    match value {
+        Value::String(s) => {
+            let keep = budget.saturating_sub(24).max(16);
+            if s.len() > keep {
+                let mut end = keep;
+                while end > 0 && !s.is_char_boundary(end) {
+                    end -= 1;
+                }
+                let dropped = s.len() - end;
+                s.truncate(end);
+                s.push_str(&format!("…[{dropped} bytes truncated]"));
+            }
+        }
+        Value::Array(items) => {
+            // Rough per-item share of the budget; keep a prefix that fits.
+            let mut used = 2usize;
+            let mut keep = 0usize;
+            for item in items.iter() {
+                let len = item.to_string().len() + 1;
+                if used + len > budget {
+                    break;
+                }
+                used += len;
+                keep += 1;
+            }
+            if keep < items.len() {
+                let dropped = items.len() - keep;
+                items.truncate(keep);
+                items.push(Value::String(format!("…[{dropped} more items truncated]")));
+            }
+        }
+        Value::Object(map) => {
+            let per = budget / map.len().max(1);
+            for (_, v) in map.iter_mut() {
+                shrink(v, per.max(48));
+            }
+        }
+        _ => {}
+    }
 }
 
 /// POSIX-style shell splitting (quotes and backslashes), no expansion.
@@ -527,6 +596,31 @@ mod tests {
             .step("task-1", r#"{"tool":"teleport","input":{}}"#)
             .await
             .contains("unknown tool"));
+    }
+
+    #[test]
+    fn truncation_keeps_json_well_formed() {
+        let big = json!({"tool": "search", "matches": (0..500).map(|i| format!("file{i}.rs:1: horizon")).collect::<Vec<_>>(), "pattern": "horizon"});
+        let out = truncate_json(&big, 2000);
+        assert!(out.len() <= 2000);
+        let parsed: Value = serde_json::from_str(&out).expect("well-formed JSON");
+        assert_eq!(parsed["_truncated"], true);
+        assert_eq!(parsed["tool"], "search");
+        assert!(parsed["matches"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("truncated"));
+        let text = json!({"tool": "read_file", "content": "x".repeat(50_000)});
+        let out = truncate_json(&text, 1000);
+        let parsed: Value = serde_json::from_str(&out).unwrap();
+        assert!(parsed["content"]
+            .as_str()
+            .unwrap()
+            .contains("bytes truncated"));
     }
 
     #[test]
