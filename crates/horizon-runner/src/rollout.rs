@@ -160,6 +160,7 @@ async fn drive(
             String::new()
         };
 
+        let policy_started = std::time::Instant::now();
         let completion = tokio::select! {
             biased;
             _ = cancel.cancelled() => {
@@ -206,15 +207,20 @@ async fn drive(
             }
         };
 
+        let policy_ms = policy_started.elapsed().as_millis() as u64;
+        let tool_started = std::time::Instant::now();
         let observation = runner.step(&params.task.id, &action).await;
-        let mut action_step = TrajectoryStep::new(turn * 2, "policy", "action", action.clone());
+        let tool_ms = tool_started.elapsed().as_millis() as u64;
+        let mut action_step = TrajectoryStep::new(turn * 2, "policy", "action", action.clone())
+            .with_duration(policy_ms);
         action_step.has_training_metadata = params.record_turns;
         let obs_step = TrajectoryStep::new(
             turn * 2 + 1,
             "environment",
             "observation",
             observation.clone(),
-        );
+        )
+        .with_duration(tool_ms);
         steps.push(action_step.clone());
         steps.push(obs_step.clone());
         let _ = events.send(RolloutEvent::Step(action_step)).await;
