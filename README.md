@@ -75,7 +75,7 @@ crates/
 └── horizon-server/   # Coordinator, job runner, training, eval, axum API + WebSocket, CLI
 python/
 └── horizon_bridge/   # verifiers rollouts, GRPO-lite + prime-rl trainers, tokenizer op
-frontend/             # React + TanStack Router, live via /ws/events
+frontend/             # React, Radix Themes, TanStack Router/Query/Table, uPlot; live via /ws/events
 plans/                # Master plan, track plans, agent-agnostic packets
 docs/                 # RESEARCH.md (training workflow), openapi.json
 ```
@@ -138,6 +138,17 @@ RL_LLM_MODEL=claude-haiku-4-5
 
 Named profiles (`RL_POLICY_PROFILES`, JSON) let one server route
 different rollouts to different providers and paths; see `.env.example`.
+
+## Dashboard
+
+Modelled on the Ray dashboard: a persistent nav rail, an overview with
+rollup tiles (in flight, rollouts per minute, tokens per second, policy
+and tool latency percentiles, mean reward, success rate, fleet health)
+over throughput, latency, in-flight, and reward time series, then dense
+sortable tables for rollouts, training runs, adapters, fleet nodes, jobs,
+and the event log. Run detail shows the trajectory as a conversation with
+per-turn latency, the reward signal table with rescoring, and the run's
+own event timeline. Types are generated from `/openapi.json`.
 
 ## Live observability
 
