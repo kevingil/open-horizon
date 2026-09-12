@@ -10,9 +10,14 @@
     "gen:api": "openapi-typescript ../docs/openapi.json -o src/lib/api-schema.d.ts"
   },
   "dependencies": {
+    "@radix-ui/themes": "^3.3.0",
+    "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-router": "^1.121.21",
+    "@tanstack/react-table": "^8.21.3",
+    "lucide-react": "^1.45.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "uplot": "^1.6.32"
   },
   "devDependencies": {
     "@types/react": "^18.3.12",
