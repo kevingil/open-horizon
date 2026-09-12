@@ -163,6 +163,17 @@
       "get": {
         "tags": [],
         "operationId": "dashboard",
+        "parameters": [
+          {
+            "name": "window_s",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -199,6 +210,40 @@
               "type": "integer",
               "minimum": 0
             }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Kind prefix filter, e.g. `rollout.` or `training.metric`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "subject_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -210,6 +255,27 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/EventEnvelope"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fleet": {
+      "get": {
+        "tags": [],
+        "operationId": "fleet",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NodeRecord"
                   }
                 }
               }
@@ -293,6 +359,52 @@
       "get": {
         "tags": [],
         "operationId": "list_runs",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/RunStatus"
+                }
+              ]
+            }
+          },
+          {
+            "name": "profile",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -415,6 +527,89 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{run_id}/events": {
+      "get": {
+        "tags": [],
+        "operationId": "run_events",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Kind prefix filter, e.g. `rollout.` or `training.metric`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "subject_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventEnvelope"
+                  }
                 }
               }
             }
@@ -568,6 +763,117 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "tags": [],
+        "operationId": "stats",
+        "parameters": [
+          {
+            "name": "window_s",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats/rewards": {
+      "get": {
+        "tags": [],
+        "operationId": "stats_rewards",
+        "parameters": [
+          {
+            "name": "window_s",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "bins",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RewardBin"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stats/timeseries": {
+      "get": {
+        "tags": [],
+        "operationId": "stats_timeseries",
+        "parameters": [
+          {
+            "name": "window_s",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "bucket_s",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StatsBucket"
+                  }
                 }
               }
             }
@@ -882,8 +1188,9 @@
         "required": [
           "generated_at",
           "runs",
-          "workers",
-          "jobs"
+          "nodes",
+          "jobs",
+          "stats"
         ],
         "properties": {
           "generated_at": {
@@ -893,17 +1200,20 @@
           "jobs": {
             "$ref": "#/components/schemas/JobCounts"
           },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeRecord"
+            }
+          },
           "runs": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RunManifest"
             }
           },
-          "workers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/WorkerRecord"
-            }
+          "stats": {
+            "$ref": "#/components/schemas/Stats"
           }
         }
       },
@@ -1187,17 +1497,17 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "worker.updated"
+                  "node.updated"
                 ]
               },
               "payload": {
                 "type": "object",
                 "required": [
-                  "worker"
+                  "node"
                 ],
                 "properties": {
-                  "worker": {
-                    "$ref": "#/components/schemas/WorkerRecord"
+                  "node": {
+                    "$ref": "#/components/schemas/NodeRecord"
                   }
                 }
               }
@@ -1704,6 +2014,83 @@
           "cancelled"
         ]
       },
+      "LatencyStats": {
+        "type": "object",
+        "description": "Latency percentiles in milliseconds over a window.",
+        "required": [
+          "samples",
+          "p50_ms",
+          "p95_ms",
+          "p99_ms"
+        ],
+        "properties": {
+          "p50_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "p95_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "p99_ms": {
+            "type": "number",
+            "format": "double"
+          },
+          "samples": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "NodeRecord": {
+        "type": "object",
+        "description": "One member of the fleet: the control plane itself, a policy endpoint,\nthe Python bridge, or a sandbox executor. Heartbeats keep `last_seen`\nfresh; a stale heartbeat shows as `down`.",
+        "required": [
+          "id",
+          "role",
+          "status",
+          "detail",
+          "meta",
+          "last_seen"
+        ],
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "meta": {
+            "type": "object",
+            "description": "Role-specific facts: capacity, in-flight, latency, versions.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "role": {
+            "type": "string",
+            "description": "`control-plane`, `policy`, `bridge`, `sandbox`."
+          },
+          "status": {
+            "$ref": "#/components/schemas/NodeStatus"
+          }
+        }
+      },
+      "NodeStatus": {
+        "type": "string",
+        "enum": [
+          "up",
+          "busy",
+          "standby",
+          "down"
+        ]
+      },
       "ProfileInfo": {
         "type": "object",
         "required": [
@@ -1794,6 +2181,29 @@
           },
           "run_id": {
             "type": "string"
+          }
+        }
+      },
+      "RewardBin": {
+        "type": "object",
+        "required": [
+          "lo",
+          "hi",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "hi": {
+            "type": "number",
+            "format": "double"
+          },
+          "lo": {
+            "type": "number",
+            "format": "double"
           }
         }
       },
@@ -2007,6 +2417,13 @@
               "null"
             ]
           },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "horizon": {
             "type": "integer",
             "format": "int32",
@@ -2025,6 +2442,13 @@
           "profile": {
             "type": "string",
             "description": "Policy profile name the run was dispatched with."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
           },
           "status": {
             "$ref": "#/components/schemas/RunStatus"
@@ -2115,6 +2539,139 @@
           }
         }
       },
+      "Stats": {
+        "type": "object",
+        "description": "Rolled-up platform health over `window_s`.",
+        "required": [
+          "window_s",
+          "in_flight",
+          "queued",
+          "rollouts_completed",
+          "rollouts_failed",
+          "rollouts_per_min",
+          "tokens_per_s",
+          "cost_per_hour",
+          "policy_latency",
+          "tool_latency"
+        ],
+        "properties": {
+          "cost_per_hour": {
+            "type": "number",
+            "format": "double"
+          },
+          "in_flight": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mean_reward": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Mean terminal reward over the last 50 scored runs."
+          },
+          "policy_latency": {
+            "$ref": "#/components/schemas/LatencyStats"
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rollouts_completed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rollouts_failed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rollouts_per_min": {
+            "type": "number",
+            "format": "double"
+          },
+          "success_rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "tokens_per_s": {
+            "type": "number",
+            "format": "double"
+          },
+          "tool_latency": {
+            "$ref": "#/components/schemas/LatencyStats"
+          },
+          "window_s": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "StatsBucket": {
+        "type": "object",
+        "description": "One bucket of the throughput time series.",
+        "required": [
+          "ts",
+          "completed",
+          "failed",
+          "tokens",
+          "cost_usd",
+          "in_flight"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "in_flight": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mean_reward": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "p95_policy_ms": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ts": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Bucket start, seconds since the Unix epoch."
+          }
+        }
+      },
       "Subject": {
         "oneOf": [
           {
@@ -2184,7 +2741,7 @@
               "kind": {
                 "type": "string",
                 "enum": [
-                  "worker"
+                  "node"
                 ]
               }
             }
@@ -2383,6 +2940,15 @@
           "content": {
             "type": "string"
           },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Wall-clock cost of producing this step: policy latency for actions,\ntool latency for observations.",
+            "minimum": 0
+          },
           "has_training_metadata": {
             "type": "boolean",
             "description": "True when a `TurnTrainingRecord` row exists for this step."
@@ -2493,48 +3059,6 @@
             "minimum": 0
           }
         }
-      },
-      "WorkerRecord": {
-        "type": "object",
-        "required": [
-          "id",
-          "role",
-          "status",
-          "detail",
-          "updated_at"
-        ],
-        "properties": {
-          "detail": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "run_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/WorkerStatus"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "WorkerStatus": {
-        "type": "string",
-        "enum": [
-          "idle",
-          "running",
-          "failed"
-        ]
       }
     }
   }

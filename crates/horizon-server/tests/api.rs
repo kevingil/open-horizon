@@ -12,6 +12,7 @@ use horizon_server::{api, build_app, Settings};
 
 struct Harness {
     base: String,
+    state: horizon_server::AppState,
     _dir: tempfile::TempDir,
     shutdown: CancellationToken,
 }
@@ -52,10 +53,11 @@ async fn harness(latency_ms: u64) -> Harness {
     JobRunner::new(state.clone(), shutdown.clone()).spawn();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let router = api::router(state);
+    let router = api::router(state.clone());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
     Harness {
         base: format!("http://{addr}"),
+        state,
         _dir: dir,
         shutdown,
     }
@@ -127,6 +129,8 @@ async fn health_config_profiles_rubrics_openapi() {
     assert!(openapi["components"]["schemas"]["EventEnvelope"].is_object());
     let (_, dash) = get(&h.base, "/api/dashboard").await;
     assert!(dash["jobs"]["queued"].is_number());
+    assert!(dash["stats"]["window_s"].is_number());
+    assert!(dash["nodes"].is_array());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -163,6 +167,42 @@ async fn rollout_runs_through_job_queue_and_rescores() {
     let (_, jobs) = get(&h.base, "/api/jobs").await;
     assert_eq!(jobs[0]["id"], run_id);
     assert_eq!(jobs[0]["status"], "completed");
+
+    assert!(
+        run["manifest"]["started_at"].is_string() && run["manifest"]["finished_at"].is_string()
+    );
+    assert!(run["trajectory"]["steps"][0]["duration_ms"].is_number());
+
+    let (_, stats) = get(&h.base, "/api/stats?window_s=600").await;
+    assert_eq!(stats["rollouts_completed"], 1, "{stats}");
+    assert!(stats["policy_latency"]["samples"].as_u64().unwrap() >= 4);
+    assert!(stats["tokens_per_s"].as_f64().unwrap() > 0.0);
+    let (_, series) = get(&h.base, "/api/stats/timeseries?window_s=600&bucket_s=60").await;
+    assert_eq!(
+        series
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["completed"].as_u64().unwrap())
+            .sum::<u64>(),
+        1
+    );
+    let (_, hist) = get(&h.base, "/api/stats/rewards?window_s=600&bins=10").await;
+    assert_eq!(
+        hist.as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["count"].as_u64().unwrap())
+            .sum::<u64>(),
+        1
+    );
+
+    let (_, completed) = get(&h.base, "/api/runs?status=completed").await;
+    assert_eq!(completed.as_array().unwrap().len(), 1);
+    let (_, none) = get(&h.base, "/api/runs?status=failed").await;
+    assert!(none.as_array().unwrap().is_empty());
+    let (_, run_events) = get(&h.base, &format!("/api/runs/{run_id}/events?kind=step.")).await;
+    assert_eq!(run_events.as_array().unwrap().len(), 8);
 
     let (_, events) = get(&h.base, "/api/events?since=0&limit=200").await;
     let kinds: Vec<&str> = events
@@ -380,6 +420,42 @@ async fn training_eval_and_adapters() {
     ] {
         assert!(kinds.contains(&expected), "missing {expected}");
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fleet_reports_control_plane_policy_bridge_and_sandbox() {
+    let h = harness(0).await;
+    let state = h.state.clone();
+    let shutdown = CancellationToken::new();
+    horizon_server::fleet::spawn(state.clone(), state.counters.clone(), shutdown.clone());
+    let nodes = loop {
+        let (_, nodes) = get(&h.base, "/api/fleet").await;
+        if nodes.as_array().map(|a| a.len()).unwrap_or(0) >= 4 {
+            break nodes;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    shutdown.cancel();
+    let by_role = |role: &str| {
+        nodes
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["role"] == role)
+            .cloned()
+            .unwrap()
+    };
+    assert_eq!(by_role("control-plane")["status"], "up");
+    assert_eq!(by_role("policy")["status"], "up", "{nodes}");
+    assert!(by_role("policy")["meta"]["latency_ms"].is_number());
+    assert_eq!(by_role("bridge")["status"], "standby");
+    assert_eq!(by_role("sandbox")["status"], "up");
+    let (_, events) = get(&h.base, "/api/events?kind=node.&limit=100").await;
+    assert!(events
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["subject"]["kind"] == "node"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
