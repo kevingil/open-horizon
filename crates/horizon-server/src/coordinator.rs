@@ -19,7 +19,7 @@ use horizon_bridge::PythonBridge;
 use horizon_core::events::DomainEvent;
 use horizon_core::models::{
     RewardRecord, RewardSignal, RolloutRequest, RunDetail, RunManifest, RunStatus, TaskSpec,
-    Trajectory, TrajectoryStep, TurnTrainingRecord, WorkerRecord, WorkerStatus,
+    Trajectory, TrajectoryStep, TurnTrainingRecord,
 };
 use horizon_core::pricing::{estimate_cost_usd, TokenUsage};
 use horizon_core::rewards::{self, RubricSpec};
@@ -180,6 +180,8 @@ impl Coordinator {
             step_count: 0,
             error: None,
             created_at: now,
+            started_at: None,
+            finished_at: None,
             updated_at: now,
         }
     }
@@ -294,6 +296,8 @@ impl Coordinator {
             return Ok(detail);
         }
         manifest.status = RunStatus::Running;
+        manifest.started_at = Some(utc_now());
+        manifest.finished_at = None;
         manifest.updated_at = utc_now();
         self.store.save_run(&RunDetail {
             manifest: manifest.clone(),
@@ -307,13 +311,6 @@ impl Coordinator {
                 manifest: manifest.clone(),
             },
         );
-        self.publish_worker(
-            "worker-rollout-local",
-            "rollout",
-            WorkerStatus::Running,
-            Some(run_id),
-            "Rollout worker is active.",
-        )?;
 
         let result = match profile.routes_to {
             RoutesTo::Verifiers => {
@@ -409,6 +406,7 @@ impl Coordinator {
             Ending::Failed => RunStatus::Failed,
         };
         manifest.updated_at = utc_now();
+        manifest.finished_at = Some(manifest.updated_at);
         manifest.step_count = trajectory.steps.len() as u32;
         manifest.terminal_reward = reward.as_ref().map(|r| r.terminal_reward);
         manifest.error = error.clone();
@@ -421,36 +419,15 @@ impl Coordinator {
         self.store.save_run(&detail)?;
         match ending {
             Ending::Completed => {
-                self.publish_worker(
-                    "worker-rollout-local",
-                    "rollout",
-                    WorkerStatus::Idle,
-                    Some(run_id),
-                    "Rollout finished; worker idle.",
-                )?;
                 self.bus
                     .run(run_id, DomainEvent::RolloutCompleted { manifest });
             }
             Ending::Cancelled => {
-                self.publish_worker(
-                    "worker-rollout-local",
-                    "rollout",
-                    WorkerStatus::Idle,
-                    Some(run_id),
-                    "Rollout cancelled; worker idle.",
-                )?;
                 self.bus
                     .run(run_id, DomainEvent::RolloutCancelled { manifest });
             }
             Ending::Failed => {
                 let msg = error.unwrap_or_else(|| "rollout failed".into());
-                self.publish_worker(
-                    "worker-rollout-local",
-                    "rollout",
-                    WorkerStatus::Failed,
-                    Some(run_id),
-                    &format!("Rollout failed: {msg}"),
-                )?;
                 self.bus.run(
                     run_id,
                     DomainEvent::RolloutFailed {
@@ -787,30 +764,6 @@ impl Coordinator {
                 None,
             )
         }
-    }
-
-    fn publish_worker(
-        &self,
-        id: &str,
-        role: &str,
-        status: WorkerStatus,
-        run_id: Option<&str>,
-        detail: &str,
-    ) -> Result<(), CoordinatorError> {
-        let worker = WorkerRecord {
-            id: id.into(),
-            role: role.into(),
-            status,
-            run_id: run_id.map(str::to_string),
-            detail: detail.into(),
-            updated_at: utc_now(),
-        };
-        self.store.upsert_worker(&worker)?;
-        self.bus.subject(
-            Some(horizon_core::events::Subject::Worker { id: id.into() }),
-            DomainEvent::WorkerUpdated { worker },
-        );
-        Ok(())
     }
 }
 
