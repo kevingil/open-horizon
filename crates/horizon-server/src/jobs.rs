@@ -2,6 +2,7 @@
 //! their leases alive while they run, and marks them terminal. A crashed
 //! process leaves an expired lease that the next runner picks up.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -185,7 +186,15 @@ async fn run_training_job(state: AppState, job: JobRecord) {
         return;
     }
     let heartbeat = spawn_heartbeat(&state, &job.id);
+    state
+        .counters
+        .training_in_flight
+        .fetch_add(1, Ordering::Relaxed);
     let result = state.training.execute(&training_run_id).await;
+    state
+        .counters
+        .training_in_flight
+        .fetch_sub(1, Ordering::Relaxed);
     heartbeat.cancel();
     match result {
         Ok(record) => {

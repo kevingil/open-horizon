@@ -125,6 +125,8 @@ async fn serve(
     );
     let shutdown = CancellationToken::new();
     let runner = JobRunner::new(state.clone(), shutdown.clone()).spawn();
+    let fleet =
+        horizon_server::fleet::spawn(state.clone(), state.counters.clone(), shutdown.clone());
     if state.settings.sglang_autoload_lora {
         if let Some(url) = &state.settings.sglang_admin_url {
             sglang::spawn_autoreload(state.bus.clone(), sglang::SglangLoraReloader::new(url));
@@ -143,6 +145,7 @@ async fn serve(
         .await?;
     shutdown.cancel();
     let _ = runner.await;
+    let _ = fleet.await;
     state.bridge.shutdown().await;
     Ok(())
 }

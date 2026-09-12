@@ -28,6 +28,8 @@ pub struct AppState {
     pub bridge: Arc<PythonBridge>,
     /// Woken whenever a job is enqueued so the runner picks it up at once.
     pub jobs_notify: Arc<Notify>,
+    /// Live in-flight counters the fleet heartbeat reports.
+    pub counters: Arc<crate::fleet::FleetCounters>,
 }
 
 pub async fn build_app(settings: Settings) -> anyhow::Result<AppState> {
@@ -97,6 +99,7 @@ pub async fn build_app(settings: Settings) -> anyhow::Result<AppState> {
         adapters,
         bridge,
         jobs_notify: Arc::new(Notify::new()),
+        counters: Arc::new(crate::fleet::FleetCounters::default()),
     })
 }
 

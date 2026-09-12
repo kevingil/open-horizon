@@ -6,6 +6,7 @@ pub mod app;
 pub mod coordinator;
 pub mod eval;
 pub mod event_bus;
+pub mod fleet;
 pub mod jobs;
 pub mod logging;
 pub mod mock_policy;
