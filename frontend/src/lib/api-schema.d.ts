@@ -116,6 +116,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fleet"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs": {
         parameters: {
             query?: never;
@@ -212,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/runs/{run_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["run_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs/{run_id}/rescore": {
         parameters: {
             query?: never;
@@ -252,6 +284,54 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_run_turn_training"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/rewards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stats_rewards"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stats/timeseries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["stats_timeseries"];
         put?: never;
         post?: never;
         delete?: never;
@@ -364,8 +444,9 @@ export interface components {
             /** Format: date-time */
             generated_at: string;
             jobs: components["schemas"]["JobCounts"];
+            nodes: components["schemas"]["NodeRecord"][];
             runs: components["schemas"]["RunManifest"][];
-            workers: components["schemas"]["WorkerRecord"][];
+            stats: components["schemas"]["Stats"];
         };
         DomainEvent: {
             /** @enum {string} */
@@ -435,9 +516,9 @@ export interface components {
             };
         } | {
             /** @enum {string} */
-            kind: "worker.updated";
+            kind: "node.updated";
             payload: {
-                worker: components["schemas"]["WorkerRecord"];
+                node: components["schemas"]["NodeRecord"];
             };
         } | {
             /** @enum {string} */
@@ -575,6 +656,37 @@ export interface components {
         };
         /** @enum {string} */
         JobStatus: "queued" | "running" | "completed" | "failed" | "cancelled";
+        /** @description Latency percentiles in milliseconds over a window. */
+        LatencyStats: {
+            /** Format: double */
+            p50_ms: number;
+            /** Format: double */
+            p95_ms: number;
+            /** Format: double */
+            p99_ms: number;
+            /** Format: int32 */
+            samples: number;
+        };
+        /**
+         * @description One member of the fleet: the control plane itself, a policy endpoint,
+         *     the Python bridge, or a sandbox executor. Heartbeats keep `last_seen`
+         *     fresh; a stale heartbeat shows as `down`.
+         */
+        NodeRecord: {
+            detail: string;
+            id: string;
+            /** Format: date-time */
+            last_seen: string;
+            /** @description Role-specific facts: capacity, in-flight, latency, versions. */
+            meta: {
+                [key: string]: unknown;
+            };
+            /** @description `control-plane`, `policy`, `bridge`, `sandbox`. */
+            role: string;
+            status: components["schemas"]["NodeStatus"];
+        };
+        /** @enum {string} */
+        NodeStatus: "up" | "busy" | "standby" | "down";
         ProfileInfo: {
             api_key_env?: string | null;
             base_url: string;
@@ -595,6 +707,14 @@ export interface components {
             reward: components["schemas"]["RewardRecord"];
             rubric: string;
             run_id: string;
+        };
+        RewardBin: {
+            /** Format: int32 */
+            count: number;
+            /** Format: double */
+            hi: number;
+            /** Format: double */
+            lo: number;
         };
         RewardRecord: {
             audit_flags: string[];
@@ -650,6 +770,8 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             error?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
             /** Format: int32 */
             horizon: number;
             id: string;
@@ -658,6 +780,8 @@ export interface components {
             model_id: string;
             /** @description Policy profile name the run was dispatched with. */
             profile: string;
+            /** Format: date-time */
+            started_at?: string | null;
             status: components["schemas"]["RunStatus"];
             /** Format: int32 */
             step_count: number;
@@ -682,6 +806,56 @@ export interface components {
             verifiers_env_id?: string | null;
             worker_id: string;
         };
+        /** @description Rolled-up platform health over `window_s`. */
+        Stats: {
+            /** Format: double */
+            cost_per_hour: number;
+            /** Format: int32 */
+            in_flight: number;
+            /**
+             * Format: double
+             * @description Mean terminal reward over the last 50 scored runs.
+             */
+            mean_reward?: number | null;
+            policy_latency: components["schemas"]["LatencyStats"];
+            /** Format: int32 */
+            queued: number;
+            /** Format: int32 */
+            rollouts_completed: number;
+            /** Format: int32 */
+            rollouts_failed: number;
+            /** Format: double */
+            rollouts_per_min: number;
+            /** Format: double */
+            success_rate?: number | null;
+            /** Format: double */
+            tokens_per_s: number;
+            tool_latency: components["schemas"]["LatencyStats"];
+            /** Format: int64 */
+            window_s: number;
+        };
+        /** @description One bucket of the throughput time series. */
+        StatsBucket: {
+            /** Format: int32 */
+            completed: number;
+            /** Format: double */
+            cost_usd: number;
+            /** Format: int32 */
+            failed: number;
+            /** Format: int32 */
+            in_flight: number;
+            /** Format: double */
+            mean_reward?: number | null;
+            /** Format: double */
+            p95_policy_ms?: number | null;
+            /** Format: int64 */
+            tokens: number;
+            /**
+             * Format: int64
+             * @description Bucket start, seconds since the Unix epoch.
+             */
+            ts: number;
+        };
         Subject: {
             id: string;
             /** @enum {string} */
@@ -697,7 +871,7 @@ export interface components {
         } | {
             id: string;
             /** @enum {string} */
-            kind: "worker";
+            kind: "node";
         };
         /** @description What a rollout is asked to do. */
         TaskSpec: {
@@ -747,6 +921,12 @@ export interface components {
             /** Format: date-time */
             at: string;
             content: string;
+            /**
+             * Format: int64
+             * @description Wall-clock cost of producing this step: policy latency for actions,
+             *     tool latency for observations.
+             */
+            duration_ms?: number | null;
             /** @description True when a `TurnTrainingRecord` row exists for this step. */
             has_training_metadata?: boolean;
             /** Format: int32 */
@@ -784,17 +964,6 @@ export interface components {
             /** Format: int32 */
             token_count?: number;
         };
-        WorkerRecord: {
-            detail: string;
-            id: string;
-            role: string;
-            run_id?: string | null;
-            status: components["schemas"]["WorkerStatus"];
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** @enum {string} */
-        WorkerStatus: "idle" | "running" | "failed";
     };
     responses: never;
     parameters: never;
@@ -925,7 +1094,9 @@ export interface operations {
     };
     dashboard: {
         parameters: {
-            query?: never;
+            query?: {
+                window_s?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -947,6 +1118,10 @@ export interface operations {
             query?: {
                 since?: number;
                 limit?: number;
+                /** @description Kind prefix filter, e.g. `rollout.` or `training.metric`. */
+                kind?: string | null;
+                subject_kind?: string | null;
+                subject_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -960,6 +1135,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EventEnvelope"][];
+                };
+            };
+        };
+    };
+    fleet: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeRecord"][];
                 };
             };
         };
@@ -1025,7 +1219,12 @@ export interface operations {
     };
     list_runs: {
         parameters: {
-            query?: never;
+            query?: {
+                status?: null | components["schemas"]["RunStatus"];
+                profile?: string | null;
+                limit?: number;
+                offset?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1131,6 +1330,34 @@ export interface operations {
             };
         };
     };
+    run_events: {
+        parameters: {
+            query?: {
+                since?: number;
+                limit?: number;
+                /** @description Kind prefix filter, e.g. `rollout.` or `training.metric`. */
+                kind?: string | null;
+                subject_kind?: string | null;
+                subject_id?: string | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventEnvelope"][];
+                };
+            };
+        };
+    };
     rescore: {
         parameters: {
             query: {
@@ -1226,6 +1453,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    stats: {
+        parameters: {
+            query?: {
+                window_s?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stats"];
+                };
+            };
+        };
+    };
+    stats_rewards: {
+        parameters: {
+            query?: {
+                window_s?: number;
+                bins?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RewardBin"][];
+                };
+            };
+        };
+    };
+    stats_timeseries: {
+        parameters: {
+            query?: {
+                window_s?: number;
+                bucket_s?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatsBucket"][];
                 };
             };
         };

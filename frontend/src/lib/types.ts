@@ -7,7 +7,7 @@ import type { components } from "./api-schema";
 type S = components["schemas"];
 
 export type RunStatus = S["RunStatus"];
-export type WorkerStatus = S["WorkerStatus"];
+export type NodeStatus = S["NodeStatus"];
 export type TrainingStatus = S["TrainingStatus"];
 export type JobStatus = S["JobStatus"];
 
@@ -18,11 +18,15 @@ export type Trajectory = S["Trajectory"];
 export type TrajectoryStep = S["TrajectoryStep"];
 export type RewardRecord = S["RewardRecord"];
 export type RewardSignal = S["RewardSignal"];
-export type WorkerRecord = S["WorkerRecord"];
+export type NodeRecord = S["NodeRecord"];
 export type JobCounts = S["JobCounts"];
 export type JobRecord = S["JobRecord"];
 export type DashboardSnapshot = S["DashboardSnapshot"];
 export type RolloutRequest = S["RolloutRequest"];
+export type Stats = S["Stats"];
+export type StatsBucket = S["StatsBucket"];
+export type LatencyStats = S["LatencyStats"];
+export type RewardBin = S["RewardBin"];
 
 export type AdapterRecord = S["AdapterRecord"];
 export type AdapterDetail = S["AdapterDetail"];
