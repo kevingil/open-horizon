@@ -10,7 +10,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{routing::post, Json, Router};
+use axum::{
+    routing::{get, post},
+    Json, Router,
+};
 use serde_json::{json, Value};
 
 #[derive(Debug, Clone)]
@@ -60,6 +63,9 @@ pub async fn serve(config: MockPolicyConfig) -> anyhow::Result<()> {
     let calls = Arc::new(AtomicU64::new(0));
     let latency = config.latency_ms;
     let app = Router::new().route(
+        "/v1/models",
+        get(|| async { Json(json!({"object": "list", "data": [{"id": "mock-policy", "object": "model", "owned_by": "horizon"}]})) }),
+    ).route(
         "/v1/chat/completions",
         post(move |Json(body): Json<Value>| {
             let calls = calls.clone();
