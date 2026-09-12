@@ -1,179 +1,77 @@
+import { Flex, Grid, Text } from "@radix-ui/themes";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { LineChart, type ChartSeries } from "../components/LineChart";
-import { fetchTrainingRun } from "../lib/api";
-import { subjectId } from "../lib/events";
-import { useEventStream } from "../lib/socket";
-import type { TrainingMetricPoint, TrainingRunRecord } from "../lib/types";
+import { useCallback, useMemo } from "react";
+import { Panel } from "../components/Panel";
+import { StatTile } from "../components/StatTile";
+import { StatusBadge } from "../components/StatusBadge";
+import { TimeSeries } from "../components/TimeSeries";
+import type { EventEnvelope } from "../lib/events";
+import { fmtDateTime, fmtDuration } from "../lib/format";
+import { useEvents } from "../lib/hub";
+import { useTrainingRun } from "../lib/query";
+import type { TrainingRunRecord } from "../lib/types";
 
 export function TrainingRunDetailPage() {
   const { trainingRunId } = useParams({ from: "/training/$trainingRunId" });
-  const [record, setRecord] = useState<TrainingRunRecord | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [liveMetrics, setLiveMetrics] = useState<TrainingMetricPoint[]>([]);
-  const [terminalKind, setTerminalKind] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const run = useTrainingRun(trainingRunId);
 
-  // Initial fetch + polling fallback so a refresh on a completed run still works.
-  useEffect(() => {
-    let active = true;
-    async function load() {
-      try {
-        const got = await fetchTrainingRun(trainingRunId);
-        if (active) setRecord(got);
-      } catch (err) {
-        if (active) setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    void load();
-    const t = window.setInterval(() => void load(), 5000);
-    return () => {
-      active = false;
-      window.clearInterval(t);
-    };
-  }, [trainingRunId]);
+  const onEvent = useCallback(
+    (e: EventEnvelope) => {
+      if (e.subject?.kind !== "training_run" || e.subject.id !== trainingRunId || e.kind !== "training.metric") return;
+      const metric = e.payload.metric;
+      qc.setQueryData<TrainingRunRecord>(["training-run", trainingRunId], (prev) => {
+        if (!prev || prev.metrics.some((m) => m.step === metric.step)) return prev;
+        return { ...prev, metrics: [...prev.metrics, metric].sort((a, b) => a.step - b.step) };
+      });
+    },
+    [qc, trainingRunId],
+  );
+  useEvents(onEvent);
 
-  // Subscribe to live training events for this run.
-  const status = useEventStream((event) => {
-    if (subjectId(event, "training_run") !== trainingRunId) return;
-    if (event.kind === "training.metric") {
-      setLiveMetrics((prev) => [...prev, event.payload.metric]);
-    }
-    if (event.kind === "training.started") {
-      setRecord(event.payload.record);
-    }
-    if (event.kind === "training.completed" || event.kind === "training.failed") {
-      setTerminalKind(event.kind);
-      setRecord(event.payload.record);
-    }
-  });
+  const metrics = run.data?.metrics ?? [];
+  const x = useMemo(() => metrics.map((m) => m.step), [metrics]);
+  const loss = useMemo(() => [{ label: "loss", values: metrics.map((m) => m.loss), slot: 8 as const }], [metrics]);
+  const reward = useMemo(() => [{ label: "mean reward", values: metrics.map((m) => m.mean_reward ?? null), slot: 6 as const }], [metrics]);
+  const kl = useMemo(() => [{ label: "kl", values: metrics.map((m) => m.kl ?? null), slot: 1 as const }], [metrics]);
+  const rewardRange = useMemo<[number, number]>(() => [0, 1], []);
+  const stepFmt = useCallback((v: number) => v.toFixed(v < 1 ? 3 : 2), []);
 
-  const metrics = useMemo<TrainingMetricPoint[]>(() => {
-    // Prefer the persisted metrics if completed; otherwise overlay live ticks
-    // on top of whatever the API returned (covers a mid-flight page load).
-    const persisted = record?.metrics ?? [];
-    if (record?.status === "completed" || record?.status === "failed") return persisted;
-    const seen = new Set(persisted.map((p) => p.step));
-    const merged = [...persisted, ...liveMetrics.filter((p) => !seen.has(p.step))];
-    merged.sort((a, b) => a.step - b.step);
-    return merged;
-  }, [record, liveMetrics]);
-
-  const lossSeries: ChartSeries = {
-    name: "loss",
-    color: "#a62b1f",
-    points: metrics.map((m) => ({ x: m.step, y: m.loss })),
-  };
-  const rewardSeries: ChartSeries = {
-    name: "mean_reward",
-    color: "#0e6a38",
-    points: metrics
-      .filter((m): m is TrainingMetricPoint & { mean_reward: number } => typeof m.mean_reward === "number")
-      .map((m) => ({ x: m.step, y: m.mean_reward })),
-  };
-  const klSeries: ChartSeries = {
-    name: "kl",
-    color: "#244aa5",
-    points: metrics
-      .filter((m): m is TrainingMetricPoint & { kl: number } => typeof m.kl === "number")
-      .map((m) => ({ x: m.step, y: m.kl })),
-  };
-
-  if (error && !record) {
-    return <section className="panel">Training run error: {error}</section>;
-  }
-  if (!record) return <section className="panel">Loading training run...</section>;
-
+  if (run.error) return <div className="empty">{String(run.error)}</div>;
+  if (!run.data) return <div className="empty">loading…</div>;
+  const r = run.data;
   return (
-    <div className="grid">
-      <section className="panel">
-        <div className="panel-header">
-          <h2>{record.id}</h2>
-          <span className={`badge badge-${record.status}`}>{record.status}</span>
-        </div>
-        <dl className="kv">
-          <dt>Parent</dt>
-          <dd>
-            {record.adapter_in ? (
-              <Link to="/adapters">{record.adapter_in}</Link>
-            ) : (
-              "-"
-            )}
-          </dd>
-          <dt>Child</dt>
-          <dd>
-            {record.adapter_out ? (
-              <Link to="/adapters">{record.adapter_out}</Link>
-            ) : (
-              "-"
-            )}
-          </dd>
-          <dt>Trainer</dt>
-          <dd>{record.trainer}</dd>
-          <dt>Samples</dt>
-          <dd>{record.sample_run_ids.length}</dd>
-          <dt>Steps</dt>
-          <dd>{metrics.length}</dd>
-          <dt>WS</dt>
-          <dd>{status}</dd>
-        </dl>
-        {Object.keys(record.hyperparams).length > 0 ? (
-          <>
-            <h3 style={{ marginTop: 12 }}>Hyperparams</h3>
-            <pre className="step-json">{JSON.stringify(record.hyperparams, null, 2)}</pre>
-          </>
-        ) : null}
-        {(record.error || (terminalKind === "training.failed" && error)) ? (
-          <p className="errors">error: {record.error || error}</p>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Loss</h2>
-          <span>{lossSeries.points.length} pts</span>
-        </div>
-        <LineChart series={[lossSeries]} xLabel="step" yLabel="loss" />
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>Mean Reward</h2>
-          <span>{rewardSeries.points.length} pts</span>
-        </div>
-        <LineChart
-          series={[rewardSeries]}
-          xLabel="step"
-          yLabel="reward"
-          yDomain={[0, 1]}
-        />
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <h2>KL</h2>
-          <span>{klSeries.points.length} pts</span>
-        </div>
-        <LineChart series={[klSeries]} xLabel="step" yLabel="kl" />
-      </section>
-
-      <section className="panel panel-wide">
-        <div className="panel-header">
-          <h2>Sample Rollouts</h2>
-          <span>{record.sample_run_ids.length}</span>
-        </div>
-        <div className="stack">
-          {record.sample_run_ids.map((id) => (
-            <Link
-              key={id}
-              to="/runs/$runId"
-              params={{ runId: id }}
-              className="run-card"
-            >
-              <strong>{id}</strong>
-            </Link>
-          ))}
-        </div>
-      </section>
-    </div>
+    <>
+      <Flex align="center" gap="3" wrap="wrap">
+        <Link to="/training" className="muted" style={{ fontSize: 12 }}>← training</Link>
+        <Text size="4" weight="bold" className="mono">{r.id}</Text>
+        <StatusBadge status={r.status} />
+        <Text size="1" className="muted">{r.trainer}</Text>
+      </Flex>
+      <div className="tiles">
+        <StatTile label="Steps" value={metrics.length} sub={`hyperparams ${JSON.stringify(r.hyperparams)}`} />
+        <StatTile label="Final loss" value={metrics.at(-1)?.loss.toFixed(4) ?? "–"} sub={metrics[0] ? `from ${metrics[0].loss.toFixed(4)}` : ""} />
+        <StatTile label="Samples" value={r.sample_run_ids.length} sub="completed rollouts" />
+        <StatTile label="Duration" value={fmtDuration(r.created_at, r.status === "running" || r.status === "queued" ? null : r.updated_at)} sub={fmtDateTime(r.created_at)} />
+        <StatTile label="Adapter" value={<span className="mono" style={{ fontSize: 14 }}>{r.adapter_out ?? "–"}</span>} sub={r.adapter_in ? `parent ${r.adapter_in}` : "from base model"} />
+      </div>
+      {r.error ? <Text size="2" color="red">error: {r.error}</Text> : null}
+      <Grid columns={{ initial: "1", md: "3" }} gap="3">
+        <Panel title="Loss"><TimeSeries x={x} series={loss} yLabel="loss" format={stepFmt} timeAxis={false} /></Panel>
+        <Panel title="Mean reward"><TimeSeries x={x} series={reward} yLabel="reward" yRange={rewardRange} format={stepFmt} timeAxis={false} /></Panel>
+        <Panel title="KL"><TimeSeries x={x} series={kl} yLabel="kl" format={stepFmt} timeAxis={false} /></Panel>
+      </Grid>
+      <Panel title="Sample rollouts" right={`${r.sample_run_ids.length}`} flush>
+        <table className="data-table">
+          <tbody>
+            {r.sample_run_ids.map((id) => (
+              <tr key={id}><td><Link to="/rollouts/$runId" params={{ runId: id }} className="mono">{id}</Link></td></tr>
+            ))}
+            {r.sample_run_ids.length === 0 ? <tr><td className="empty">no samples</td></tr> : null}
+          </tbody>
+        </table>
+      </Panel>
+    </>
   );
 }
