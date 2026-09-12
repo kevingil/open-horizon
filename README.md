@@ -1,23 +1,21 @@
 # Distributed RL for Long-Horizon LLM Agents
 
-Training, evaluations, and observability for long-horizon LLM
-agents.
+Training, evaluations, and observability for long-horizon LLM agents.
+
+The control plane is Rust: durable jobs with leases, a sequenced event
+log, the HTTP and WebSocket API, and the rollout loop that keeps the
+inference server busy. Python stays where the research ecosystem lives:
+verifiers environments, the GRPO and prime-rl trainers, and tokenizers,
+driven as a supervised worker over NDJSON.
 
 ## Quick Start
 
-Backend:
+Backend (no Python needed for the default configuration):
 
 ```bash
-uv sync --extra dev
-source .venv/bin/activate
 cp .env.example .env
-make dev
+make dev            # horizon serve, SQLite store under ./artifacts
 ```
-
-The default config uses the static policy and simulated environment, so you can
-start without an API key. For OpenAI or another OpenAI-compatible provider,
-edit `.env` and set `RL_POLICY_BACKEND=openai`, `RL_LLM_API_KEY`,
-`RL_LLM_BASE_URL`, and `RL_LLM_MODEL`.
 
 Frontend:
 
@@ -29,248 +27,169 @@ npm run dev
 
 Then open:
 
-- API: `http://127.0.0.1:8000`
+- API: `http://127.0.0.1:8000` (OpenAPI at `/openapi.json`)
 - Dashboard: `http://127.0.0.1:5173`
+
+The default profile routes to verifiers, which needs the Python bridge.
+For a zero-dependency first run, set `RL_ENV_BACKEND=repo` and point
+`RL_LLM_BASE_URL` at any OpenAI-compatible endpoint.
 
 ## Development Loop
 
-This repo is in active development. The fastest useful checks are:
-
 ```bash
-make lint
-python -m compileall -q src tests
+make lint           # clippy -D warnings + rustfmt check
+make test           # cargo test --workspace
+make py-test        # python/ bridge tests (needs python/.venv, see below)
+make check          # all of the above
+make openapi        # regenerate docs/openapi.json from the Rust types
 ```
 
-Useful commands:
+Python bridge setup:
 
 ```bash
-make dev      # FastAPI with reload
-make lint     # ruff
-make fmt      # ruff fix + format
-rl-train --list
-rl-eval --adapter adapter-y
-rl-replay --list
+cd python
+uv venv .venv && uv pip install --python .venv/bin/python -e '.[dev]'
+# Extras as needed: [envs] for verifiers, [train] for GRPO + tokenizers,
+# [prime-rl] for the prime-rl trainer.
 ```
 
-## Development Options
+CLI (one binary, `horizon`):
 
-1. Local development on macOS: ready.
-2. Local development on a single GPU: in progress.
-3. Local or cloud GPU serving with vLLM or SGLang: in progress.
-4. Distributed runs with Ray-compatible scale-out: coming soon.
+```bash
+cargo run -p horizon-server -- serve
+cargo run -p horizon-server -- train --samples run-aaa,run-bbb [--parent adapter-x] [--steps 8]
+cargo run -p horizon-server -- train --list
+cargo run -p horizon-server -- eval --adapter adapter-y
+cargo run -p horizon-server -- replay --run run-aaa --rubric coding-v1 [--dry-run]
+cargo run -p horizon-server -- replay --list
+```
 
 ## Layout
 
 ```
-src/
-├── domain/           # Pure models, contracts, events, pure reward signals
-├── application/      # Async coordinator + event bus
-├── infrastructure/   # Policy / env / rewards / store / tools adapters
-├── interface/api/    # FastAPI + WebSocket
-├── settings.py       # pydantic-settings, env-driven
-├── runtime_logging.py # structlog with contextvars + event-bus bridge
-└── bootstrap.py      # Wiring
-frontend/             # React + TanStack Router, live via /ws/events
+crates/
+├── horizon-core/     # Canonical DTOs (OpenAPI via utoipa), events, pricing, rubrics, tool schema
+├── horizon-store/    # SQLite: runs, workers, turn training, training runs, evals, jobs, event log
+├── horizon-runner/   # Sandbox, repo snapshot, tool dispatch, OpenAI-compat client, rollout loop
+├── horizon-bridge/   # Supervised Python worker over NDJSON (multiplexed, restart on crash)
+└── horizon-server/   # Coordinator, job runner, training, eval, axum API + WebSocket, CLI
+python/
+└── horizon_bridge/   # verifiers rollouts, GRPO-lite + prime-rl trainers, tokenizer op
+frontend/             # React, Radix Themes, TanStack Router/Query/Table, uPlot; live via /ws/events
 plans/                # Master plan, track plans, agent-agnostic packets
-tests/                # unit / contract / integration / smoke
+docs/                 # RESEARCH.md (training workflow), openapi.json
 ```
+
+## How work flows
+
+1. `POST /api/runs` validates the profile and inserts a `rollout` job.
+2. The job runner leases it (SQLite, `lease_until`), heartbeats while it
+   runs, and marks it terminal. A crashed worker leaves an expired lease
+   that the next runner picks up; after `RL_JOB_MAX_ATTEMPTS` it fails.
+3. Repo profiles run the Rust loop: chat completion, tool dispatch into a
+   sandboxed snapshot, token and cost accounting, per-turn events.
+   Cancellation races the HTTP call, so a cancelled rollout never waits
+   for the provider to finish generating.
+4. Verifiers profiles hand the task to the Python bridge, which runs
+   `Environment.run_rollout` and returns a scored trajectory. Rust owns
+   cost, persistence, and events.
+5. Every event is appended to the `events` table with a sequence number
+   and broadcast. `/ws/events?since=<seq>` resumes from any point.
+
+Training runs are jobs too. The stub trainer runs in Rust; `grpo` and
+`prime-rl` run in the bridge with metrics streamed back as
+`training.metric` events. Published adapters can be hot-loaded into
+SGLang (`RL_SGLANG_AUTOLOAD_LORA=true`).
 
 ## Backends (swap via env)
 
 ```
-RL_POLICY_BACKEND   static | openai
 RL_STORE_BACKEND    memory | sqlite
-RL_ENV_BACKEND      simulated | repo | verifiers
-RL_ENV_SANDBOX      none   | docker
+RL_ENV_BACKEND      verifiers | repo
+RL_ENV_SANDBOX      none | docker
+RL_TRAINER_BACKEND  stub | grpo | prime-rl
 ```
-
-Every adapter lives behind the same `domain/contracts.py` ABC, so the
-coordinator doesn't know which backend it's driving.
 
 ## Policy: any OpenAI-compatible provider
 
-The `openai` backend talks to anything that speaks OpenAI's Chat Completions
-API: OpenAI proper, vLLM, Ollama, OpenRouter, llama.cpp server, Anthropic via
-their compat surface. Pick the provider with three env vars:
-
 ```bash
-# OpenAI proper. gpt-5.4-mini is the current cheap+capable default;
-# gpt-4.1-nano is the absolute floor.
+# OpenAI proper
 RL_LLM_API_KEY=sk-... RL_LLM_MODEL=gpt-5.4-mini
 
-# Local vLLM (the vllm:* prefix marks it $0 in cost tracking):
+# Local vLLM (vllm:* prefix marks it $0 in cost tracking)
 RL_LLM_BASE_URL=http://127.0.0.1:8000/v1
 RL_LLM_MODEL=vllm:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
-# Ollama:
-RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
-RL_LLM_MODEL=ollama:qwen3:8b
-
-# SGLang (drop-in OpenAI-compat; the sglang:* prefix marks it $0):
+# SGLang (scripts/serve_sglang.sh; sglang:* prefix marks it $0)
 RL_LLM_BASE_URL=http://127.0.0.1:30000/v1
 RL_LLM_MODEL=sglang:Qwen/Qwen3-8B
 RL_LLM_API_KEY=not-needed
 
-# Anthropic via OpenAI-compat:
+# Ollama
+RL_LLM_BASE_URL=http://127.0.0.1:11434/v1
+RL_LLM_MODEL=ollama:qwen3:8b
+
+# Anthropic via OpenAI-compat
 RL_LLM_BASE_URL=https://api.anthropic.com/v1/
 RL_LLM_API_KEY=sk-ant-...
 RL_LLM_MODEL=claude-haiku-4-5
 ```
 
+Named profiles (`RL_POLICY_PROFILES`, JSON) let one server route
+different rollouts to different providers and paths; see `.env.example`.
+
+## Dashboard
+
+Modelled on the Ray dashboard: a persistent nav rail, an overview with
+rollup tiles (in flight, rollouts per minute, tokens per second, policy
+and tool latency percentiles, mean reward, success rate, fleet health)
+over throughput, latency, in-flight, and reward time series, then dense
+sortable tables for rollouts, training runs, adapters, fleet nodes, jobs,
+and the event log. Run detail shows the trajectory as a conversation with
+per-turn latency, the reward signal table with rescoring, and the run's
+own event timeline. Types are generated from `/openapi.json`.
+
+Captured by `scripts/smoke/run.sh` against the mock policy:
+
+| Overview | Rollouts |
+|---|---|
+| ![Overview](docs/screenshots/overview.png) | ![Rollouts](docs/screenshots/rollouts.png) |
+
+| Run detail: conversation | Run detail: reward signals |
+|---|---|
+| ![Run detail](docs/screenshots/run-detail.png) | ![Reward](docs/screenshots/run-reward.png) |
+
+| Training run | Fleet |
+|---|---|
+| ![Training](docs/screenshots/training.png) | ![Fleet](docs/screenshots/fleet.png) |
+
 ## Live observability
 
-- FastAPI `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps,
-  rewards, logs, worker state, progress, cancellation, budget).
-- Structlog log lines flow into the same stream via `install_event_bus_handler`.
-- Frontend subscribes over WebSocket (auto-reconnect); no polling.
-- Run-detail view parses the rubric-driven reward provenance into a signal
-  breakdown (value, weight, reason).
+- `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps,
+  rewards, logs, worker state, progress, cancellation, budget, training).
+- Tracing log lines from the Rust crates flow into the same stream as
+  `log.line` events.
+- `/api/events?since=N` and `/api/jobs` expose the durable log and the
+  job table for debugging and for other workers.
 
-## Training loop
+## Smoke test
 
-A closed loop: rollouts feed a trainer, the trainer publishes an adapter,
-the adapter slots into the policy server, the eval harness scores it.
-All visualised live via WebSocket events.
+`scripts/smoke/run.sh` builds the release binary, starts the scripted
+mock policy (`horizon mock-policy`), the server on SQLite, and the Vite
+dashboard, then drives the browser through queue, live progress, run
+detail, rescoring, training from a selection, eval, and a mid-flight
+cancel. Screenshots and a `report.json` land under `artifacts/smoke/`.
 
-```bash
-# Default: stub trainer (deterministic fake; no ML deps required)
-make dev
+## Compatibility notes
 
-# Real GRPO-lite LoRA training
-pip install -e '.[train]'
-RL_TRAINER_BACKEND=grpo \
-RL_GRPO_BASE_MODEL=Qwen/Qwen3-0.6B \
-    make dev
+- The store schema is normalised (steps, reward signals, and training
+  metrics are rows, timestamps are integers) and is not compatible with
+  databases written by the previous Python service.
+- Events are envelopes: `{seq, at, subject, kind, payload}`. Frontend
+  types are generated from `/openapi.json` (`npm run gen:api`).
+- Heuristic rubrics (`heuristic-v1`, `coding-v1`, `strict-finish-v1`)
+  are kept for replay. Production reward should come from verifiers
+  rubrics or judge models, not from extending these.
 
-# Trigger a training run from completed rollouts
-rl-train --samples run-aaa,run-bbb [--parent adapter-x] [--steps 16]
-rl-train --list
-
-# Evaluate an adapter against the built-in task set
-rl-eval --adapter adapter-y
-```
-
-The frontend ships **Adapters**, **Training Runs**, and per-run live charts
-(loss / mean_reward / kl) updated from `training.metric` events. Multi-select
-completed rollouts on the dashboard and click "Train from selection" to kick
-off a run from the UI.
-
-### vLLM / SGLang / Ollama for serving the policy
-
-The OpenAI-compat policy server already speaks any OpenAI-shape endpoint, so
-swapping in vLLM, SGLang, or Ollama is two env vars:
-
-```bash
-# vLLM hosting Qwen with LoRA mounting:
-vllm serve Qwen/Qwen3-8B --enable-lora \
-    --lora-modules adapter-aaa=./artifacts/adapters/adapter-aaa
-RL_POLICY_BACKEND=openai \
-RL_LLM_BASE_URL=http://127.0.0.1:8000/v1 \
-RL_LLM_MODEL=vllm:adapter-aaa \
-    make dev
-
-# SGLang (RadixAttention prefix caching speeds up multi-turn rollouts):
-SGLANG_MODEL=Qwen/Qwen3-8B \
-SGLANG_LORA_PATHS="adapter-aaa=./artifacts/adapters/adapter-aaa" \
-    scripts/serve_sglang.sh
-RL_POLICY_BACKEND=openai \
-RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
-RL_LLM_API_KEY=not-needed \
-RL_LLM_MODEL=sglang:adapter-aaa \
-    make dev
-
-# Ollama:
-RL_LLM_BASE_URL=http://127.0.0.1:11434/v1 \
-RL_LLM_MODEL=ollama:qwen3:8b \
-    make dev
-```
-
-`vllm:*` / `sglang:*` / `ollama:*` / `local:*` model id prefixes are treated
-as $0 cost in the dashboard so self-hosted rollouts don't fake spend.
-
-SGLang isn't supported on macOS — keep Mac on a remote SGLang reachable via
-`RL_LLM_BASE_URL`, or stay on the static / OpenAI policy locally.
-
-#### Hot-loading trained adapters into SGLang
-
-Set `RL_SGLANG_ADMIN_URL=http://127.0.0.1:30000` and
-`RL_SGLANG_AUTOLOAD_LORA=true` and the API tails `AdapterPublished`
-events on the bus, POSTing each freshly trained LoRA to SGLang's
-`/load_lora_adapter` endpoint. After that, `RL_LLM_MODEL=sglang:<adapter_id>`
-routes to the new adapter without a server restart. SGLang must be
-launched with `--enable-lora` (the `serve_sglang.sh` script does this).
-
-### verifiers as the rollout loop
-
-`RL_ENV_BACKEND=verifiers` delegates the per-step rollout to the
-[verifiers](https://github.com/PrimeIntellect-ai/verifiers) framework. Its
-`env.rollout(client, model, prompt, ...)` owns the loop and produces both
-the trajectory and a rubric-scored reward in one shot - so on this path
-`CompositeRewardPipeline` is bypassed and verifiers' rubric is the source
-of truth.
-
-```bash
-pip install -e '.[envs]'                     # adds verifiers
-RL_ENV_BACKEND=verifiers \
-RL_VERIFIERS_ENV_ID=vf-math \
-RL_POLICY_BACKEND=openai \
-RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
-RL_LLM_MODEL=sglang:Qwen/Qwen3-8B \
-    make dev
-```
-
-`RL_VERIFIERS_ENV_ARGS` is JSON forwarded to `vf.load_environment`. Hub
-envs (`rlm`, `opencode/*`, ...) are installed via the Prime Intellect CLI
-(`pip install prime`).
-
-## Reward iteration
-
-Reward is a pure `RubricSpec` of signal functions
-(`domain/rewards.py`): step-count, error-penalty, success-criteria-match,
-finish-detection, tests-pass. Swap `CompositeRewardPipeline.rubric` to
-iterate; stored trajectories can be re-scored without re-running rollouts,
-and every `RewardRecord` carries the rubric name + per-signal breakdown in
-its provenance.
-
-```bash
-rl-replay --list                                   # registered rubrics
-rl-replay --run run-abc123 --rubric strict-finish-v1
-```
-
-### Smoke test (optional, real API)
-
-```bash
-# OpenAI default:
-RL_SMOKE_API_KEY=sk-... pytest tests/smoke -v
-
-# Against a local vLLM:
-RL_SMOKE_API_KEY=not-needed \
-RL_SMOKE_BASE_URL=http://127.0.0.1:8000/v1 \
-RL_SMOKE_MODEL=Qwen/Qwen3-8B \
-    pytest tests/smoke -v
-```
-
-Runs one real LLM rollout against a tiny tempdir repo; designed to cost
-well under a cent per invocation against gpt-5.4-mini.
-
-## Configuration
-
-All settings are env-driven with the `RL_` prefix (see `.env.example`).
-Highlights:
-
-- `RL_POLICY_BACKEND=openai` · `RL_LLM_API_KEY` · `RL_LLM_BASE_URL` · `RL_LLM_MODEL`
-- `RL_STORE_BACKEND=sqlite` (persists at `$RL_ARTIFACTS_DIR/runs.db`)
-- `RL_ENV_BACKEND=repo` (per-rollout tempdir snapshot via `git ls-files`)
-- `RL_ENV_SANDBOX=docker` (auto-falls-back to `none` if Docker is missing)
-- `RL_MAX_TOKENS_PER_RUN` per-run cost ceiling; the coordinator aborts with
-  a trajectory error when exceeded.
-- `RL_DAILY_BUDGET_USD` rolling-window USD cap; new rollouts are refused
-  with a `BudgetExceeded` event when reached.
-
-## Credits
-
-This project builds around a few excellent open-source systems:
-
-- <a href="https://github.com/sgl-project/sglang"><img src="https://raw.githubusercontent.com/sgl-project/sglang/main/assets/logo.png" alt="SGLang" height="32"></a> SGLang for efficient OpenAI-compatible policy serving.
-- <a href="https://github.com/PrimeIntellect-ai/verifiers"><img src="https://github.com/user-attachments/assets/6414bc9b-126b-41ca-9307-9e982430cde8" alt="Prime Intellect verifiers" height="32"></a> Prime Intellect verifiers for environment-driven rollout and reward loops.
+See `docs/RESEARCH.md` for the training-engineer workflow.

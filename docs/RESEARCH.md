@@ -29,15 +29,17 @@ Three concerns, three layers, no overlap:
 | Layer | Job | What we own |
 |---|---|---|
 | **Inference** | Serve the policy via OpenAI-compat | `scripts/serve_sglang.sh`, optional admin sidecar |
-| **Rollout loop** | Drive the agent through N turns | `verifiers.run_rollout` (prod) or `run_repo_rollout` (repo path) |
-| **Training** | Update the policy from rollouts | `prime-rl` shelled out from `PrimeRLTrainer` |
+| **Rollout loop** | Drive the agent through N turns | `verifiers.run_rollout` via the Python bridge (prod) or the Rust loop in `horizon-runner` (repo path) |
+| **Training** | Update the policy from rollouts | `prime-rl` shelled out from the bridge's `PrimeRLTrainer` |
 
 What we **don't** own: a custom serving stack, a custom rollout loop
 for long-horizon agentic envs, or a custom GRPO implementation. Those
 all live in upstream projects (SGLang, verifiers, prime-rl). This repo
-contributes the orchestration around them: per-run profiles, a
-training recorder, an event bus, an artifact store, an adapter
-registry, and an observability dashboard.
+contributes the orchestration around them, in Rust: per-run profiles,
+durable jobs with leases, a sequenced event log, the artifact store,
+the adapter registry, the rollout loop for the repo path, and an
+observability dashboard. Python is a supervised worker
+(`python/horizon_bridge`) that runs verifiers envs and trainers.
 
 ---
 
@@ -133,7 +135,7 @@ bytes cost.
 ### Wiring
 
 ```python
-from infrastructure.training.recorder import TokenizedTrainingRecorder
+# Set RL_TRAINING_RECORDER=tokenized; the Rust loop calls the bridge's `tokenize` op per turn
 from transformers import AutoTokenizer
 
 tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-8B")
@@ -192,7 +194,7 @@ The production loop. End-to-end:
 5. **Register** the produced adapter at `RL_ADAPTERS_DIR/<id>`.
 6. **Hot-load** into SGLang via the admin sidecar; the new adapter is
    immediately addressable as `sglang:<adapter_id>`.
-7. **Eval** the adapter via `rl-eval --adapter <id>` (or `POST
+7. **Eval** the adapter via `horizon eval --adapter <id>` (or `POST
    /api/adapters/<id>/eval`), which routes a fixed task set through
    the new model id.
 8. **Iterate**: the next training run can use this adapter as the
@@ -201,7 +203,7 @@ The production loop. End-to-end:
 ### Setup
 
 ```bash
-pip install -e '.[envs,train,prime-rl]'
+cd python && uv pip install --python .venv/bin/python -e '.[envs,train,prime-rl]'
 
 # Terminal 1: serving
 SGLANG_MODEL=Qwen/Qwen3-8B \
@@ -329,7 +331,7 @@ SGLang LoRA hot-reload sidecar (when configured) POSTs to
 RL_LLM_MODEL=sglang:<adapter_id> now routes to it
         │
         ▼
-rl-eval --adapter <id> runs the eval task set through the new model
+horizon eval --adapter <id> runs the eval task set through the new model
         │
         ▼
 EvalReport persisted; the next training run can use this as parent
@@ -343,12 +345,12 @@ adapter remains on disk so the next SGLang launch picks it up via
 
 ## Eval harness
 
-`rl-eval --adapter <id>` (or `POST /api/adapters/<id>/eval`) routes a
+`horizon eval --adapter <id>` (or `POST /api/adapters/<id>/eval`) routes a
 fixed task set through whatever model `RL_LLM_MODEL` resolves to. To
 eval a freshly trained adapter:
 
 ```bash
-RL_LLM_MODEL=sglang:adapter-aaa rl-eval --adapter adapter-aaa
+RL_LLM_MODEL=sglang:adapter-aaa horizon eval --adapter adapter-aaa
 ```
 
 Or supply a custom task set via the API body. The harness just

@@ -1,140 +1,44 @@
-export type RunStatus = "pending" | "running" | "completed" | "failed";
-export type WorkerStatus = "idle" | "running" | "failed";
+/**
+ * Domain types, re-exported from the OpenAPI bindings generated out of
+ * the Rust DTOs (`npm run gen:api`). Nothing here is hand-maintained.
+ */
+import type { components } from "./api-schema";
 
-export interface RunManifest {
-  id: string;
-  model_id: string;
-  adapter_id: string | null;
-  dataset_slice: string;
-  infra_target: string;
-  seed: number;
-  status: RunStatus;
-  created_at: string;
-  updated_at: string;
-  estimated_cost_usd: number;
-}
+type S = components["schemas"];
 
-export interface WorkerRecord {
-  id: string;
-  role: string;
-  status: WorkerStatus;
-  run_id: string | null;
-  detail: string;
-}
+export type RunStatus = S["RunStatus"];
+export type NodeStatus = S["NodeStatus"];
+export type TrainingStatus = S["TrainingStatus"];
+export type JobStatus = S["JobStatus"];
 
-export interface ArtifactRecord {
-  name: string;
-  kind: string;
-  path: string;
-}
+export type RunManifest = S["RunManifest"];
+export type RunDetail = S["RunDetail"];
+export type TaskSpec = S["TaskSpec"];
+export type Trajectory = S["Trajectory"];
+export type TrajectoryStep = S["TrajectoryStep"];
+export type RewardRecord = S["RewardRecord"];
+export type RewardSignal = S["RewardSignal"];
+export type NodeRecord = S["NodeRecord"];
+export type JobCounts = S["JobCounts"];
+export type JobRecord = S["JobRecord"];
+export type DashboardSnapshot = S["DashboardSnapshot"];
+export type RolloutRequest = S["RolloutRequest"];
+export type Stats = S["Stats"];
+export type StatsBucket = S["StatsBucket"];
+export type LatencyStats = S["LatencyStats"];
+export type RewardBin = S["RewardBin"];
 
-export interface DashboardSnapshot {
-  generated_at: string;
-  runs: RunManifest[];
-  workers: WorkerRecord[];
-  recent_artifacts: ArtifactRecord[];
-}
+export type AdapterRecord = S["AdapterRecord"];
+export type AdapterDetail = S["AdapterDetail"];
+export type TrainingMetricPoint = S["TrainingMetricPoint"];
+export type TrainingRunRecord = S["TrainingRunRecord"];
+export type EvalReport = S["EvalReport"];
+export type EvalTask = S["EvalTask"];
 
-export interface TaskSpec {
-  id: string;
-  prompt: string;
-  repo_snapshot: string;
-  tool_permissions: string[];
-  horizon: number;
-  success_criteria: string[];
-}
-
-export interface TrajectoryStep {
-  index: number;
-  actor: string;
-  kind: string;
-  content: string;
-  timestamp: string;
-}
-
-export interface TrajectoryRecord {
-  id: string;
-  task_id: string;
-  steps: TrajectoryStep[];
-  summaries: string[];
-  timings_ms: Record<string, number>;
-  errors: string[];
-}
-
-export interface RewardPenalty {
-  code: string;
-  value: number;
-  reason: string;
-}
-
-export interface RewardRecord {
-  trajectory_id: string;
-  terminal_reward: number;
-  step_rewards: number[];
-  penalties: RewardPenalty[];
-  audit_flags: string[];
-  provenance: string;
-}
-
-export interface RunDetail {
-  manifest: RunManifest;
-  task: TaskSpec;
-  trajectory: TrajectoryRecord;
-  reward: RewardRecord;
-  artifacts: ArtifactRecord[];
-}
-
-export interface AdapterRecord {
-  id: string;
-  parent_id: string | null;
-  base_model: string;
-  training_run_id: string | null;
-  eval_score: number | null;
-  path: string;
-  tags: string[];
-  metadata: Record<string, string>;
-  created_at: string;
-}
-
-export interface TrainingMetricPoint {
-  step: number;
-  loss: number;
-  mean_reward: number | null;
-  kl: number | null;
-  extra: Record<string, number>;
-}
-
-export type TrainingStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
-
-export interface TrainingRunRecord {
-  id: string;
-  status: TrainingStatus;
-  adapter_in: string | null;
-  adapter_out: string | null;
-  sample_run_ids: string[];
-  hyperparams: Record<string, number | string | boolean>;
-  metrics: TrainingMetricPoint[];
-  error: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EvalTaskScore {
-  task_id: string;
-  terminal_reward: number;
-}
-
-export interface EvalReport {
-  id: string;
-  adapter_id: string;
-  task_set: string;
-  mean_reward: number;
-  per_task: EvalTaskScore[];
-  created_at: string;
-}
-
-export interface AdapterDetail {
-  adapter: AdapterRecord;
-  children: AdapterRecord[];
-  eval_reports: EvalReport[];
-}
+export type BudgetStatus = S["BudgetStatus"];
+export type RuntimeConfig = S["RuntimeConfig"];
+export type RubricInfo = S["RubricInfo"];
+export type RescoreResponse = S["RescoreResponse"];
+export type CreateTrainingRunBody = S["CreateTrainingRunBody"];
+export type CreateTrainingRunResponse = S["CreateTrainingRunResponse"];
+export type CreateRunResponse = S["CreateRunResponse"];

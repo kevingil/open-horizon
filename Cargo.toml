@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/horizon-core",
+  "crates/horizon-store",
+  "crates/horizon-runner",
+  "crates/horizon-bridge",
+  "crates/horizon-server",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80"
+
+[workspace.dependencies]
+horizon-core = { path = "crates/horizon-core" }
+horizon-store = { path = "crates/horizon-store" }
+horizon-runner = { path = "crates/horizon-runner" }
+horizon-bridge = { path = "crates/horizon-bridge" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
+utoipa = { version = "5", features = ["chrono", "axum_extras"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = { version = "0.8", features = ["ws", "macros"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
+regex = "1"
+tempfile = "3"

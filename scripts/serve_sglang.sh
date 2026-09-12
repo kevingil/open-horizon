@@ -13,7 +13,6 @@
 #                         Example: "adapter-aaa=./artifacts/adapters/adapter-aaa"
 #
 # After it boots, point the stack at it:
-#   RL_POLICY_BACKEND=openai \
 #   RL_LLM_BASE_URL=http://127.0.0.1:30000/v1 \
 #   RL_LLM_API_KEY=not-needed \
 #   RL_LLM_MODEL=sglang:Qwen/Qwen3-8B \

@@ -1,0 +1,17 @@
+[package]
+name = "horizon-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+horizon-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+rusqlite.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
