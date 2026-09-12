@@ -13,3 +13,5 @@ artifacts/
 target/
 .env
 frontend/tsconfig.tsbuildinfo
+.claude-local/
+CLAUDE.local.md
