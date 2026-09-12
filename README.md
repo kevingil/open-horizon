@@ -150,6 +150,20 @@ and the event log. Run detail shows the trajectory as a conversation with
 per-turn latency, the reward signal table with rescoring, and the run's
 own event timeline. Types are generated from `/openapi.json`.
 
+Captured by `scripts/smoke/run.sh` against the mock policy:
+
+| Overview | Rollouts |
+|---|---|
+| ![Overview](docs/screenshots/overview.png) | ![Rollouts](docs/screenshots/rollouts.png) |
+
+| Run detail: conversation | Run detail: reward signals |
+|---|---|
+| ![Run detail](docs/screenshots/run-detail.png) | ![Reward](docs/screenshots/run-reward.png) |
+
+| Training run | Fleet |
+|---|---|
+| ![Training](docs/screenshots/training.png) | ![Fleet](docs/screenshots/fleet.png) |
+
 ## Live observability
 
 - `/ws/events` streams typed `DomainEvent`s (rollout lifecycle, steps,
