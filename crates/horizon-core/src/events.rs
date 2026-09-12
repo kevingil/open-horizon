@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::models::{
-    AdapterRecord, EvalReport, RewardRecord, RunManifest, TrainingMetricPoint, TrainingRunRecord,
-    TrajectoryStep, WorkerRecord,
+    AdapterRecord, EvalReport, NodeRecord, RewardRecord, RunManifest, TrainingMetricPoint,
+    TrainingRunRecord, TrajectoryStep,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -23,7 +23,7 @@ pub enum Subject {
     Run { id: String },
     TrainingRun { id: String },
     Adapter { id: String },
-    Worker { id: String },
+    Node { id: String },
 }
 
 impl Subject {
@@ -32,7 +32,7 @@ impl Subject {
             Subject::Run { .. } => "run",
             Subject::TrainingRun { .. } => "training_run",
             Subject::Adapter { .. } => "adapter",
-            Subject::Worker { .. } => "worker",
+            Subject::Node { .. } => "node",
         }
     }
 
@@ -41,7 +41,7 @@ impl Subject {
             Subject::Run { id }
             | Subject::TrainingRun { id }
             | Subject::Adapter { id }
-            | Subject::Worker { id } => id,
+            | Subject::Node { id } => id,
         }
     }
 
@@ -87,8 +87,8 @@ pub enum DomainEvent {
         cap_usd: f64,
         window_hours: f64,
     },
-    #[serde(rename = "worker.updated")]
-    WorkerUpdated { worker: WorkerRecord },
+    #[serde(rename = "node.updated")]
+    NodeUpdated { node: NodeRecord },
     #[serde(rename = "log.line")]
     LogLine {
         level: String,
@@ -127,7 +127,7 @@ impl DomainEvent {
             DomainEvent::RolloutFailed { .. } => "rollout.failed",
             DomainEvent::RolloutCancelled { .. } => "rollout.cancelled",
             DomainEvent::BudgetExceeded { .. } => "budget.exceeded",
-            DomainEvent::WorkerUpdated { .. } => "worker.updated",
+            DomainEvent::NodeUpdated { .. } => "node.updated",
             DomainEvent::LogLine { .. } => "log.line",
             DomainEvent::TrainingQueued { .. } => "training.queued",
             DomainEvent::TrainingStarted { .. } => "training.started",

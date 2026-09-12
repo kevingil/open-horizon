@@ -24,7 +24,7 @@ macro_rules! str_enum {
 }
 
 str_enum!(RunStatus { Queued => "queued", Running => "running", Completed => "completed", Failed => "failed", Cancelled => "cancelled" });
-str_enum!(WorkerStatus { Idle => "idle", Running => "running", Failed => "failed" });
+str_enum!(NodeStatus { Up => "up", Busy => "busy", Standby => "standby", Down => "down" });
 str_enum!(TrainingStatus { Queued => "queued", Running => "running", Completed => "completed", Failed => "failed", Cancelled => "cancelled" });
 str_enum!(JobKind { Rollout => "rollout", Training => "training" });
 str_enum!(JobStatus { Queued => "queued", Running => "running", Completed => "completed", Failed => "failed", Cancelled => "cancelled" });
@@ -73,6 +73,10 @@ pub struct TrajectoryStep {
     pub kind: String,
     pub content: String,
     pub at: DateTime<Utc>,
+    /// Wall-clock cost of producing this step: policy latency for actions,
+    /// tool latency for observations.
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
     /// True when a `TurnTrainingRecord` row exists for this step.
     #[serde(default)]
     pub has_training_metadata: bool,
@@ -86,8 +90,14 @@ impl TrajectoryStep {
             kind: kind.into(),
             content: content.into(),
             at: utc_now(),
+            duration_ms: None,
             has_training_metadata: false,
         }
+    }
+
+    pub fn with_duration(mut self, ms: u64) -> Self {
+        self.duration_ms = Some(ms);
+        self
     }
 }
 
@@ -159,7 +169,18 @@ pub struct RunManifest {
     pub step_count: u32,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+}
+
+impl RunManifest {
+    /// Seconds between start and finish (or now while running).
+    pub fn duration_s(&self) -> Option<f64> {
+        let start = self.started_at?;
+        let end = self.finished_at.unwrap_or_else(utc_now);
+        Some((end - start).num_milliseconds() as f64 / 1000.0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -170,14 +191,19 @@ pub struct RunDetail {
     pub reward: Option<RewardRecord>,
 }
 
+/// One member of the fleet: the control plane itself, a policy endpoint,
+/// the Python bridge, or a sandbox executor. Heartbeats keep `last_seen`
+/// fresh; a stale heartbeat shows as `down`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct WorkerRecord {
+pub struct NodeRecord {
     pub id: String,
+    /// `control-plane`, `policy`, `bridge`, `sandbox`.
     pub role: String,
-    pub status: WorkerStatus,
-    pub run_id: Option<String>,
+    pub status: NodeStatus,
     pub detail: String,
-    pub updated_at: DateTime<Utc>,
+    /// Role-specific facts: capacity, in-flight, latency, versions.
+    pub meta: serde_json::Map<String, serde_json::Value>,
+    pub last_seen: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
@@ -193,8 +219,57 @@ pub struct JobCounts {
 pub struct DashboardSnapshot {
     pub generated_at: DateTime<Utc>,
     pub runs: Vec<RunManifest>,
-    pub workers: Vec<WorkerRecord>,
+    pub nodes: Vec<NodeRecord>,
     pub jobs: JobCounts,
+    pub stats: Stats,
+}
+
+/// Latency percentiles in milliseconds over a window.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize, ToSchema)]
+pub struct LatencyStats {
+    pub samples: u32,
+    pub p50_ms: f64,
+    pub p95_ms: f64,
+    pub p99_ms: f64,
+}
+
+/// Rolled-up platform health over `window_s`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
+pub struct Stats {
+    pub window_s: u64,
+    pub in_flight: u32,
+    pub queued: u32,
+    pub rollouts_completed: u32,
+    pub rollouts_failed: u32,
+    pub rollouts_per_min: f64,
+    pub tokens_per_s: f64,
+    pub cost_per_hour: f64,
+    pub success_rate: Option<f64>,
+    /// Mean terminal reward over the last 50 scored runs.
+    pub mean_reward: Option<f64>,
+    pub policy_latency: LatencyStats,
+    pub tool_latency: LatencyStats,
+}
+
+/// One bucket of the throughput time series.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ToSchema)]
+pub struct StatsBucket {
+    /// Bucket start, seconds since the Unix epoch.
+    pub ts: i64,
+    pub completed: u32,
+    pub failed: u32,
+    pub tokens: u64,
+    pub cost_usd: f64,
+    pub mean_reward: Option<f64>,
+    pub p95_policy_ms: Option<f64>,
+    pub in_flight: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct RewardBin {
+    pub lo: f64,
+    pub hi: f64,
+    pub count: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
